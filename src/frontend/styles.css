@@ -17,8 +17,12 @@
 }
 
 /* Hexagon mesh — tiled seamless SVG (accent color, matches the slider fill),
-   scaled 2x with a faint radial glow toward the top-right. */
+   scaled 2x with a faint radial glow toward the top-right.
+   NOTE: keep margin/color here — this block replaces UA defaults for the whole
+   app, and omitting `color` makes every unstyled element inherit black text. */
 body {
+  margin: 0;
+  color: var(--text);
   background-color: var(--bg);
   background-image:
     radial-gradient(1100px 520px at 78% -12%, rgba(255, 112, 67, 0.07), transparent 62%),
