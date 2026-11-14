@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "description": "Universal physical constants and default simulation grid settings. SI units throughout.",
+  "physical_constants": {
+    "universal_gas_constant_j_per_molK": 8.314462,
+    "standard_gravity_m_per_s2": 9.80665,
+    "stefan_boltzmann_w_per_m2K4": 5.670374e-8,
+    "atmosphere_pa": 101325.0,
+    "absolute_zero_k": 273.15,
+    "reference_temperature_k": 298.15
+  },
+  "gravity_modes": {
+    "zero_g": {
+      "label": "Zero-G (ideal)",
+      "g_m_per_s2": 0.0,
+      "g_jitter_m_per_s2": 0.0,
+      "note": "Purely diffusive spherical flames; no buoyant convection."
+    },
+    "iss_micro_g": {
+      "label": "ISS Micro-G (g-jitter)",
+      "g_m_per_s2": 1.0e-6,
+      "g_jitter_m_per_s2": 5.0e-4,
+      "note": "Residual acceleration varies 1e-6 to 1e-3 g; adds slight asymmetry to diffusion-dominated flames."
+    },
+    "earth_1g": {
+      "label": "Earth 1G",
+      "g_m_per_s2": 9.80665,
+      "g_jitter_m_per_s2": 0.0,
+      "note": "Buoyant convection dominates; classic teardrop flame morphology."
+    },
+    "mars_g": {
+      "label": "Mars 0.38G",
+      "g_m_per_s2": 3.726,
+      "g_jitter_m_per_s2": 0.0,
+      "note": "Mission-relevant partial gravity for habitat fire-safety analysis."
+    },
+    "moon_g": {
+      "label": "Moon 0.165G",
+      "g_m_per_s2": 1.62,
+      "g_jitter_m_per_s2": 0.0,
+      "note": "Mission-relevant partial gravity for habitat fire-safety analysis."
+    }
+  },
+  "default_grid": {
+    "nx": 128,
+    "ny": 128,
+    "domain_length_m": 0.08,
+    "domain_height_m": 0.08,
+    "dt_s": 0.0005,
+    "end_time_s": 2.0,
+    "output_interval_steps": 4,
+    "ignition_region_m": 0.003,
+    "wall_thermal_mode": "adiabatic",
+    "solver": "adi-thomas"
+  },
+  "unit_conversions": {
+    "bar_to_pa": 1.0e5,
+    "mm_to_m": 1.0e-3
+  }
+}

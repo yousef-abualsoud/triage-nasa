@@ -1,0 +1,152 @@
+"""
+Tier 1 bulk triage via typesafe/jev-latest on NanoGPT (async, concurrent).
+
+Sends compact NASA-vs-sim payload pairs (~200 tokens each) and enforces the
+structured JevVerdict output schema. Falls back to a deterministic local
+heuristic when no API key is configured so demos never depend on network.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from schema import JevVerdict, UnifiedPayload  # noqa: E402
+
+NANOGPT_BASE_URL = os.environ.get("NANOGPT_BASE_URL", "https://nano-gpt.com/api/v1")
+JEV_MODEL = "typesafe/jev-latest"
+MAX_CONCURRENCY = int(os.environ.get("JEV_CONCURRENCY", "12"))
+_TIMEOUT = httpx.Timeout(45.0)
+
+
+def _api_key() -> str | None:
+    return os.environ.get("NANOGPT_API_KEY")
+
+
+def _triage_prompt(gt: UnifiedPayload, sim: UnifiedPayload) -> str:
+    return (
+        "You are a combustion telemetry triage engine. Compare the NASA PSI ground-truth "
+        "run against the simulated run and classify. Respond ONLY with JSON matching: "
+        '{"flame_morphology": "spherical"|"teardrop"|"fragmented"|"extinguished", '
+        '"buoyancy_driven_convection": bool, '
+        '"nasa_experiment_profile_match": "ACME"|"SOFIE"|"FLEX"|"NONE", '
+        '"soot_volume_fraction_score": 0-100, '
+        '"radiant_heat_loss_critical": bool, '
+        '"stability_score": 0-100, "delta_score": 0-100, "confidence_score": 0-1, '
+        '"notes": str}\n'
+        f"NASA_GROUND_TRUTH: {gt.model_dump_json()}\n"
+        f"SIM_PREDICTION: {sim.model_dump_json()}"
+    )
+
+
+def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
+    """Deterministic offline triage used when no NanoGPT key is present."""
+    g_sim = 9.81 if sim.gravity_mode == "earth_1g" else 0.0
+    buoyant = g_sim > 0.1 and (sim.max_radius_mm or 0.0) > 1.0
+    if (sim.peak_temp_k or 0.0) < 500.0:
+        morph = "extinguished"
+    elif buoyant:
+        morph = "teardrop"
+    elif (sim.inlet_velocity_ms or 0.0) > 0.3:
+        morph = "fragmented"
+    else:
+        morph = "spherical"
+
+    profile = "NONE"
+    eid = (getattr(gt, "experiment_id", None) or "")
+    if isinstance(eid, str):
+        profile = "ACME" if "sflame" in eid.lower() or "coflow" in eid.lower() else (
+            "SOFIE" if "saffire" in eid.lower() else "NONE"
+        )
+
+    t_gt = gt.peak_temp_k or 0.0
+    t_sim = sim.peak_temp_k or 0.0
+    delta = abs(t_gt - t_sim) / max(t_gt, 1.0) * 100.0 if t_gt else 50.0
+    r_gt = gt.max_radius_mm or 0.0
+    r_sim = sim.max_radius_mm or 0.0
+    radius_delta = abs(r_gt - r_sim) / max(r_gt, 1.0) * 100.0 if r_gt else 40.0
+    delta_score = round(min((delta + radius_delta) / 2.0, 100.0), 1)
+    stability = sim.stability if sim.stability is not None else 60.0
+
+    soot_score = round(
+        min(100.0, (sim.soot_yield_index or 0.0) * 100.0 / 0.05), 1
+    )
+    return JevVerdict(
+        flame_morphology=morph,  # type: ignore[arg-type]
+        buoyancy_driven_convection=buoyant,
+        nasa_experiment_profile_match=profile,  # type: ignore[arg-type]
+        soot_volume_fraction_score=soot_score,
+        radiant_heat_loss_critical=(sim.peak_temp_k or 0.0) > 1800.0,
+        stability_score=float(stability),
+        delta_score=float(delta_score),
+        confidence_score=0.55 if delta_score < 60 else 0.4,
+        notes="Local heuristic fallback (no NanoGPT key configured).",
+    )
+
+
+async def triage_pair(
+    gt: UnifiedPayload, sim: UnifiedPayload, client: httpx.AsyncClient | None = None
+) -> JevVerdict:
+    """Triage one ground-truth/sim pair through Jev (or local fallback)."""
+    key = _api_key()
+    prompt = _triage_prompt(gt, sim)
+    if not key:
+        return _local_heuristic(gt, sim)
+
+    own_client = client is None
+    if own_client:
+        client = httpx.AsyncClient(
+            base_url=NANOGPT_BASE_URL, timeout=_TIMEOUT, headers={"Authorization": f"Bearer {key}"}
+        )
+    assert client is not None
+
+    async def _call() -> dict[str, Any]:
+        assert client is not None
+        resp = await client.post(
+            "/chat/completions",
+            json={
+                "model": JEV_MODEL,
+                "messages": [
+                    {"role": "system", "content": "Output strict JSON only."},
+                    {"role": "user", "content": prompt},
+                ],
+                "response_format": {"type": "json_object"},
+            },
+        )
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        return json.loads(content)
+
+    try:
+        data = await _call()
+        return JevVerdict.model_validate(data)
+    except Exception:
+        return _local_heuristic(gt, sim)
+    finally:
+        if own_client and client is not None:
+            await client.aclose()
+
+
+async def triage_sweep(
+    pairs: list[tuple[UnifiedPayload, UnifiedPayload]],
+) -> list[JevVerdict]:
+    """Concurrent triage of many pairs with bounded parallelism."""
+    sem = asyncio.Semaphore(MAX_CONCURRENCY)
+
+    async def one(pair: tuple[UnifiedPayload, UnifiedPayload]) -> JevVerdict:
+        async with sem:
+            return await triage_pair(*pair)
+
+    async with httpx.AsyncClient(
+        base_url=NANOGPT_BASE_URL,
+        timeout=_TIMEOUT,
+        headers={"Authorization": f"Bearer {_api_key() or 'unset'}"},
+    ) as client:
+        return await asyncio.gather(*(one(p) for p in pairs))

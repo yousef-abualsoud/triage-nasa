@@ -1,0 +1,25 @@
+# Build artifacts
+build/
+node_modules/
+dist/
+__pycache__/
+*.so
+*.pyc
+.venv/
+venv/
+
+# Environment / secrets
+.env
+*.key
+*_key.pem
+
+# Data caches (large downloaded telemetry kept out of git)
+data/psi_cache/
+data/processed/
+*.parquet
+*.h5
+
+# Tooling
+.aider*
+*.log
+.DS_Store
