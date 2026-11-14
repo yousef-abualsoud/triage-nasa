@@ -37,7 +37,9 @@ Or one command with Docker: `docker compose up --build` (serves everything).
 1. **Run a simulation.** Pick a fuel preset (CH4/C2H4/C3H8/H2 — thermochemistry
    auto-populates from `src/shared/species_db.json`), set O2%, ambient
    pressure, gravity mode (Zero-G / ISS Micro-G / Earth 1G / Mars / Moon), and
-   ignition energy. Press **Run simulation** — the flame field renders live.
+   ignition energy. Press **Run simulation** — the flame renders live as a
+   **3D volumetric view** (three.js raymarched emission-absorption shader;
+   drag to orbit, wheel to zoom), with a flat 2D heatmap toggle.
 
 2. **Compare against NASA flight data.** The **Burn Curves** panel overlays the
    C++ prediction (solid) against historical ISS ACME/Saffire telemetry
@@ -62,6 +64,11 @@ src/
 ├── frontend/    # React + D3 digital-twin dashboard (Vite)
 └── shared/      # species_db.json + constants.json (single source of truth)
 ```
+
+**3D view disclosure:** the solver field is strictly 2D (`[ny][nx]` K grid);
+the 3D view revolves it about the flame axis (axisymmetric assumption) and
+raymarches the resulting volume. It is a visualization transform, not a 3D
+physics solver — disclosed on-screen via the "axisymmetric revolve" chip.
 
 **Solver seam contract** — every consumer speaks `SimConfig`/`SimResult`
 (`src/python/schema.py`), never the .so directly. If `import triage_core`

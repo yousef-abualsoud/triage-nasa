@@ -14,6 +14,8 @@ export default function FlameField2D({
   onScrub,
   gravityMode,
   finalData,
+  ambientK = 300,
+  headerExtra,
 }) {
   const canvasRef = useRef(null);
   const [dims, setDims] = React.useState({ w: 480, h: 480 });
@@ -34,7 +36,7 @@ export default function FlameField2D({
     const ny = frame.length;
     const nx = frame[0].length;
     const img = ctx.createImageData(nx, ny);
-    let max = 300;
+    let max = ambientK;
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         if (frame[j][i] > max) max = frame[j][i];
@@ -43,11 +45,14 @@ export default function FlameField2D({
     // Normalize color domain to this run's dynamic range for contrast.
     const scale = d3
       .scaleSequential()
-      .domain([300, Math.min(max, 3000)])
+      .domain([ambientK, Math.min(max, 3200)])
       .interpolator(d3.interpolateRgbBasis(["#02020f", "#1a237e", "#b71c1c", "#ff9800", "#ffe082", "#4dd0e1"]));
+    // Row 0 of the solver field is the physical bottom (y = -H/2); canvas
+    // row 0 is the top, so source rows are mirrored onto dest rows.
     for (let j = 0; j < ny; j++) {
+      const srcRow = frame[ny - 1 - j];
       for (let i = 0; i < nx; i++) {
-        const rgb = d3.color(scale(frame[j][i]));
+        const rgb = d3.color(scale(srcRow[i]));
         const o = (j * nx + i) * 4;
         img.data[o] = rgb.r;
         img.data[o + 1] = rgb.g;
@@ -73,6 +78,7 @@ export default function FlameField2D({
         <h2>Flame Field (2D)</h2>
         <span className="chip">{modeLabel}</span>
         {time != null && <span className="chip">t = {time.toFixed ? time.toFixed(3) : time} s</span>}
+        {headerExtra}
       </div>
       <div className="flame-canvas-wrap">
         <canvas

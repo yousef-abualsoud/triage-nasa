@@ -14,9 +14,12 @@
 - [x] `src/python/jev_client.py` — Tier 1 concurrent triage + local heuristic
 - [x] `src/python/azure_frontier_client.py` — Tier 2 synthesis + fallback report
 - [x] `src/python/server.py` — full-duplex WebSocket, sweeps, run cache
-- [x] Frontend: App / hooks / ControlPanel / FlameField2D / BurnCurveOverlay /
-      ScatterPlot — e2e verified in-browser (sim → sweep → triage → tier2)
-- [x] README (judge quick start + AI disclosure)
+- [x] Frontend: App / hooks / ControlPanel / FlameField3D (three.js
+      raymarched axisymmetric volumetric view, orbit controls, 3D/2D toggle,
+      WebGL fallback to heatmap) / FlameField2D (y-flip fixed) /
+      BurnCurveOverlay / ScatterPlot — e2e verified in-browser (3D zero-G
+      centered sphere; 1G plume rises with t; sweep → 6 triage dots)
+- [x] README (judge quick start + AI disclosure + 3D axisymmetry disclosure)
 
 ## Solver seam contract (binding)
 

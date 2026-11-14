@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useTriageBackend, useConfigForm } from "./hooks.js";
 import ControlPanel from "./components/ControlPanel.jsx";
 import FlameField2D from "./components/FlameField2D.jsx";
+import FlameField3D from "./components/FlameField3D.jsx";
 import BurnCurveOverlay from "./components/BurnCurveOverlay.jsx";
 import ScatterPlot from "./components/ScatterPlot.jsx";
 
@@ -46,6 +47,8 @@ export default function App() {
   const { config, update } = useConfigForm(DEFAULT_CONFIG);
   const [frameIndex, setFrameIndex] = useState(0);
   const [reportOpen, setReportOpen] = useState(false);
+  // Flame-field rendering mode: raymarched 3D (default) or flat 2D heatmap.
+  const [viewMode, setViewMode] = useState("3D");
 
   // Initial run once connected.
   useEffect(() => {
@@ -119,15 +122,36 @@ export default function App() {
         </aside>
 
         <section className="col main-viz">
-          <FlameField2D
-            frame={frame}
-            time={times[Math.min(frameIndex, times.length - 1)]}
-            frameIndex={frameIndex}
-            frameCount={frames.length}
-            onScrub={setFrameIndex}
-            gravityMode={config.gravity_mode}
-            finalData={finalData}
-          />
+          {viewMode === "3D" ? (
+            <FlameField3D
+              frame={frame}
+              time={times[Math.min(frameIndex, times.length - 1)]}
+              frameIndex={frameIndex}
+              frameCount={frames.length}
+              onScrub={setFrameIndex}
+              gravityMode={config.gravity_mode}
+              finalData={finalData}
+              domain={{ L: config.domain_length_m, H: config.domain_height_m }}
+              ambientK={config.ambient_temperature_k}
+              headerExtra={
+                <ViewToggle mode={viewMode} onChange={setViewMode} />
+              }
+            />
+          ) : (
+            <FlameField2D
+              frame={frame}
+              time={times[Math.min(frameIndex, times.length - 1)]}
+              frameIndex={frameIndex}
+              frameCount={frames.length}
+              onScrub={setFrameIndex}
+              gravityMode={config.gravity_mode}
+              finalData={finalData}
+              ambientK={config.ambient_temperature_k}
+              headerExtra={
+                <ViewToggle mode={viewMode} onChange={setViewMode} />
+              }
+            />
+          )}
           <BurnCurveOverlay
             simHistory={history}
             groundTruth={groundTruth}
@@ -194,6 +218,24 @@ export default function App() {
           single-step Arrhenius (reduced approximation).
         </p>
       </footer>
+    </div>
+  );
+}
+
+function ViewToggle({ mode, onChange }) {
+  return (
+    <div className="view-toggle" role="group" aria-label="Flame field view mode">
+      {["3D", "2D"].map((m) => (
+        <button
+          key={m}
+          className={`toggle-btn ${mode === m ? "active" : ""}`}
+          onClick={() => onChange(m)}
+          aria-pressed={mode === m}
+          type="button"
+        >
+          {m}
+        </button>
+      ))}
     </div>
   );
 }
