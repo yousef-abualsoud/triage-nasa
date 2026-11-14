@@ -59,7 +59,10 @@ def _o2_mass_fraction(oxygen_pct: float) -> float:
 def _mock_run(cfg: SimConfig) -> dict[str, Any]:
     chem = cfg.resolved_chemistry()
     g_mag, _g_jit = cfg.gravity()
-    n_steps = int(cfg.end_time_s / cfg.dt_s)
+    # Run length is driven by iteration_count (UI) x dt (step size), not wall-clock
+    # end time — dt=1s steps are allowed; the mock substeps the physics below.
+    n_steps = int(cfg.iteration_count)
+    dt_eff = cfg.dt_s
 
     x = np.linspace(-cfg.domain_length_m / 2.0, cfg.domain_length_m / 2.0, cfg.nx)
     y = np.linspace(-cfg.domain_height_m / 2.0, cfg.domain_height_m / 2.0, cfg.ny)
@@ -68,10 +71,11 @@ def _mock_run(cfg: SimConfig) -> dict[str, Any]:
 
     T = np.full((cfg.ny, cfg.nx), cfg.ambient_temperature_k, dtype=np.float64)
     ignited = R <= cfg.ignition_region_m
+    # Adiabatic-flame-temperature ceiling scales with the fuel preset so
+    # custom presets behave like their built-in counterparts.
+    t_cap_chem = chem.get("adiabatic_flame_temp_k", 2400.0)
     # Ignition cap: a spark cannot exceed a plausible hot-source temperature.
-    t_ig_cap = min(
-        chem.get("adiabatic_flame_temp_k", 2400.0) + 300.0, 3000.0
-    )
+    t_ig_cap = min(t_cap_chem + 300.0, 3000.0)
     if cfg.ignition_method == "energy_deposition":
         T[ignited] += min(cfg.ignition_energy_j * 4.0e3, t_ig_cap - cfg.ambient_temperature_k)
     else:  # hot_spot
@@ -104,25 +108,25 @@ def _mock_run(cfg: SimConfig) -> dict[str, Any]:
     quench_t = None
 
     for step in range(1, n_steps + 1):
-        t = step * cfg.dt_s
+        t = step * dt_eff
 
         # Buoyant advection: upward drift proportional to g and local heat.
         if g_mag > 0.1:
             v_buoy = g_mag * 2.0e-3 * (T / cfg.ambient_temperature_k - 1.0)
-            T = _upwind_shift(T, v_buoy, cfg.dt_s, dy)
-            Y_F = _upwind_shift(Y_F, v_buoy, cfg.dt_s, dy)
-            Y_O2 = _upwind_shift(Y_O2, v_buoy, cfg.dt_s, dy)
+            T = _upwind_shift(T, v_buoy, dt_eff, dy)
+            Y_F = _upwind_shift(Y_F, v_buoy, dt_eff, dy)
+            Y_O2 = _upwind_shift(Y_O2, v_buoy, dt_eff, dy)
 
         # Inlet advection (Saffire mode): right-to-left drift.
         if cfg.inlet_velocity_ms > 0:
-            cfl = min(cfg.inlet_velocity_ms * cfg.dt_s / dx, 0.4)
+            cfl = min(cfg.inlet_velocity_ms * dt_eff / dx, 0.4)
             for F in (T, Y_F, Y_O2):
                 F[1:-1, 1:-1] += cfl * (F[1:-1, 1:-1] - F[1:-1, 2:])
 
         # Diffusion (Fick / Fourier), explicit kernel.
-        T = _diffuse(T, alpha, cfg.dt_s, dx2, dy2)
-        Y_F = _diffuse(Y_F, D, cfg.dt_s, dx2, dy2)
-        Y_O2 = _diffuse(Y_O2, D, cfg.dt_s, dx2, dy2)
+        T = _diffuse(T, alpha, dt_eff, dx2, dy2)
+        Y_F = _diffuse(Y_F, D, dt_eff, dx2, dy2)
+        Y_O2 = _diffuse(Y_O2, D, dt_eff, dx2, dy2)
 
         # Arrhenius source (single-step, reduced approximation).
         omega = (
@@ -131,13 +135,13 @@ def _mock_run(cfg: SimConfig) -> dict[str, Any]:
             * np.maximum(Y_F, 0.0) ** nu_f
             * np.maximum(Y_O2, 0.0) ** nu_o
         )
-        dY = np.minimum(omega * cfg.dt_s, np.minimum(Y_F, Y_O2 / stoich_o2))
+        dY = np.minimum(omega * dt_eff, np.minimum(Y_F, Y_O2 / stoich_o2))
         release = dY * chem["lower_heating_value_j_per_kg"]
         T += release / (chem["specific_heat_j_per_kgK"] * MOCK_RHO)
         Y_F = np.clip(Y_F - dY, 0.0, 1.0)
         Y_O2 = np.clip(Y_O2 - dY * stoich_o2, 0.0, 1.0)
         # Cap at a physically motivated ceiling: adiabatic flame temp + margin.
-        t_cap = chem.get("adiabatic_flame_temp_k", 2400.0) * cfg.ambient_pressure_bar ** 0.1
+        t_cap = t_cap_chem * cfg.ambient_pressure_bar ** 0.1
         T = np.clip(T, cfg.ambient_temperature_k, min(t_cap + 300.0, 3500.0))
 
         # Quenching: flame dies when peak temp collapses toward ambient.
@@ -162,6 +166,7 @@ def _mock_run(cfg: SimConfig) -> dict[str, Any]:
                     ),
                     "soot_index": round(_soot_index(cfg, chem, float(flame.mean())), 4),
                     "buoyancy_ke": round(g_mag * float(radius), 5),
+                    "iteration": step,
                 }
             )
 

@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Component, useEffect, useMemo, useState } from "react";
 import { useTriageBackend, useConfigForm } from "./hooks.js";
 import ControlPanel from "./components/ControlPanel.jsx";
 import FlameField2D from "./components/FlameField2D.jsx";
 import FlameField3D from "./components/FlameField3D.jsx";
+import IterationGraph from "./components/IterationGraph.jsx";
+import CalculationLog from "./components/CalculationLog.jsx";
+import JevComparison from "./components/JevComparison.jsx";
 import BurnCurveOverlay from "./components/BurnCurveOverlay.jsx";
-import ScatterPlot from "./components/ScatterPlot.jsx";
+import MoreGraphs from "./components/MoreGraphs.jsx";
 
 const DEFAULT_CONFIG = {
   fuel: "CH4",
@@ -12,48 +15,75 @@ const DEFAULT_CONFIG = {
   ambient_pressure_bar: 1.0,
   ambient_temperature_k: 300.0,
   gravity_mode: "zero_g",
+  custom_gravity_m_per_s2: 3.7,
+  custom_g_jitter_m_per_s2: 0.0,
   inlet_velocity_ms: 0.0,
   ignition_method: "energy_deposition",
   ignition_energy_j: 2.0,
   nx: 128,
   ny: 128,
-  dt_s: 0.0005,
-  end_time_s: 0.5,
-  wall_thermal_mode: "adiabatic",
-  wall_temperature_k: 300.0,
+  dt_s: 0.001,
+  iteration_count: 200,
   domain_length_m: 0.08,
   domain_height_m: 0.08,
   ignition_region_m: 0.003,
-  output_interval_steps: 16,
+  output_interval_steps: 4,
 };
 
-const SPECIES = [
-  { key: "CH4", label: "Methane (CH₄)" },
-  { key: "C2H4", label: "Ethylene (C₂H₄)" },
-  { key: "C3H8", label: "Propane (C₃H₈)" },
-  { key: "H2", label: "Hydrogen (H₂)" },
+const TABS = [
+  { key: "run", label: "1 · Run & Calculations" },
+  { key: "visuals", label: "2 · Fire Visuals & Analysis" },
+  { key: "graphs", label: "3 · More Graphs" },
 ];
 
-const GRAVITY_MODES = [
-  { key: "zero_g", label: "Zero-G (ideal)" },
-  { key: "iss_micro_g", label: "ISS Micro-G (jitter)" },
-  { key: "earth_1g", label: "Earth 1G" },
-  { key: "mars_g", label: "Mars 0.38G" },
-  { key: "moon_g", label: "Moon 0.165G" },
-];
+/** Render-failure guard: shows the error in-page instead of a blank app. */
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="error-bar" role="alert">
+          UI error: {String(this.state.error?.message ?? this.state.error)}
+          <button
+            className="action-btn"
+            style={{ marginLeft: 12 }}
+            onClick={() => this.setState({ error: null })}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const backend = useTriageBackend();
   const { config, update } = useConfigForm(DEFAULT_CONFIG);
   const [frameIndex, setFrameIndex] = useState(0);
-  const [reportOpen, setReportOpen] = useState(false);
-  // Flame-field rendering mode: raymarched 3D (default) or flat 2D heatmap.
   const [viewMode, setViewMode] = useState("3D");
+  const [tab, setTab] = useState("run");
 
   // Initial run once connected.
   useEffect(() => {
     if (backend.connected && !backend.simResult) {
       backend.sendConfig(config);
+    }
+  }, [backend.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fuel preset list once connected (built-ins + persisted customs).
+  useEffect(() => {
+    if (backend.connected && !backend.fuelInfo) {
+      backend.refreshFuels();
     }
   }, [backend.connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -67,12 +97,16 @@ export default function App() {
   const history = backend.simResult?.history ?? [];
   const unified = backend.simResult?.unified ?? null;
   const finalData = backend.simResult?.final ?? null;
+  const runId = backend.simResult?.run_id ?? null;
+  // Nearest NASA PSI ground truth ships with the triage reply; until triage
+  // runs there is no dashed overlay (nothing to compare against yet).
   const groundTruth = useMemo(
-    () => findNearestGroundTruth(unified),
-    [unified]
+    () => backend.verdict?.ground_truth ?? null,
+    [backend.verdict]
   );
 
   const frame = frames[Math.min(frameIndex, frames.length - 1)] ?? null;
+  const time = times[Math.min(frameIndex, times.length - 1)] ?? null;
 
   return (
     <div className="app">
@@ -97,120 +131,149 @@ export default function App() {
         </div>
       </header>
 
+      <nav className="tab-nav" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            className={`tab-btn ${tab === t.key ? "active" : ""}`}
+            onClick={() => setTab(t.key)}
+            type="button"
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
       {backend.error && (
         <div className="error-bar" role="alert">
           {backend.error}
         </div>
       )}
 
-      <main className="layout">
-        <aside className="col controls">
-          <ControlPanel
-            config={config}
-            update={update}
-            species={SPECIES}
-            gravityModes={GRAVITY_MODES}
-            onRun={() => backend.sendConfig(config)}
-            onSweep={() =>
-              backend.sendSweep(
-                { oxygen_pct: [14, 18, 21, 25, 30, 40] },
-                config
-              )
-            }
-            busy={backend.busy}
-          />
-        </aside>
+      <ErrorBoundary key={tab}>
+        {tab === "run" && (
+          <main className="layout layout-run">
+            <aside className="col controls">
+              <ControlPanel
+                config={config}
+                update={update}
+                fuelInfo={backend.fuelInfo}
+                onSaveFuel={backend.saveFuel}
+                onDeleteFuel={backend.deleteFuel}
+                onRun={() => backend.sendConfig(config)}
+                busy={backend.busy}
+              />
+            </aside>
+            <section className="col main-run">
+              <IterationGraph history={history} />
+              <CalculationLog
+                history={history}
+                times={times}
+                busy={backend.busy}
+                finalData={finalData}
+              />
+            </section>
+          </main>
+        )}
 
-        <section className="col main-viz">
-          {viewMode === "3D" ? (
-            <FlameField3D
-              frame={frame}
-              time={times[Math.min(frameIndex, times.length - 1)]}
-              frameIndex={frameIndex}
-              frameCount={frames.length}
-              onScrub={setFrameIndex}
-              gravityMode={config.gravity_mode}
-              finalData={finalData}
-              domain={{ L: config.domain_length_m, H: config.domain_height_m }}
-              ambientK={config.ambient_temperature_k}
-              headerExtra={
-                <ViewToggle mode={viewMode} onChange={setViewMode} />
-              }
-            />
-          ) : (
-            <FlameField2D
-              frame={frame}
-              time={times[Math.min(frameIndex, times.length - 1)]}
-              frameIndex={frameIndex}
-              frameCount={frames.length}
-              onScrub={setFrameIndex}
-              gravityMode={config.gravity_mode}
-              finalData={finalData}
-              ambientK={config.ambient_temperature_k}
-              headerExtra={
-                <ViewToggle mode={viewMode} onChange={setViewMode} />
-              }
-            />
-          )}
-          <BurnCurveOverlay
-            simHistory={history}
-            groundTruth={groundTruth}
-          />
-          <ScatterPlot
-            sweepResults={backend.sweepResults}
-            onTriage={async (runId) => {
-              const v = await backend.requestTriage(runId);
-              if (v?.verdict) {
-                setReportOpen(true);
-              }
-            }}
-          />
-        </section>
+        {tab === "visuals" && (
+          <main className="layout layout-visuals">
+            <section className="col main-viz">
+              {viewMode === "3D" ? (
+                <FlameField3D
+                  frame={frame}
+                  time={time}
+                  frameIndex={frameIndex}
+                  frameCount={frames.length}
+                  onScrub={setFrameIndex}
+                  gravityMode={config.gravity_mode}
+                  finalData={finalData}
+                  domain={{
+                    L: config.domain_length_m,
+                    H: config.domain_height_m,
+                  }}
+                  ambientK={config.ambient_temperature_k}
+                  headerExtra={
+                    <ViewToggle mode={viewMode} onChange={setViewMode} />
+                  }
+                />
+              ) : (
+                <FlameField2D
+                  frame={frame}
+                  time={time}
+                  frameIndex={frameIndex}
+                  frameCount={frames.length}
+                  onScrub={setFrameIndex}
+                  gravityMode={config.gravity_mode}
+                  finalData={finalData}
+                  ambientK={config.ambient_temperature_k}
+                  headerExtra={
+                    <ViewToggle mode={viewMode} onChange={setViewMode} />
+                  }
+                />
+              )}
+              <BurnCurveOverlay
+                simHistory={history}
+                groundTruth={groundTruth}
+              />
+            </section>
+            <aside className="col report">
+              <JevComparison
+                verdictMsg={backend.verdict}
+                sim={unified}
+                onTriage={
+                  runId ? () => backend.requestTriage(runId) : undefined
+                }
+                busy={backend.busy}
+                connected={backend.connected}
+              />
+              {unified && (
+                <div className="panel tier2-panel">
+                  <div className="panel-head">
+                    <h2>Tier 2 — Frontier synthesis</h2>
+                    <span className="chip">
+                      {backend.tier2Report?.azure
+                        ? "Azure AI Foundry"
+                        : "local fallback"}
+                    </span>
+                  </div>
+                  <button
+                    className="action-btn primary"
+                    onClick={() => backend.requestTier2(runId)}
+                    disabled={!backend.connected || backend.busy}
+                  >
+                    Request Tier 2 report
+                  </button>
+                  {backend.tier2Report ? (
+                    <MarkdownView markdown={backend.tier2Report.markdown} />
+                  ) : (
+                    <p className="muted small">
+                      The frontier model synthesizes a fire-safety diagnostic
+                      from this run, the nearest NASA PSI comparison, and the
+                      tier-1 verdict — with Moon/Mars ECLSS recommendations.
+                    </p>
+                  )}
+                </div>
+              )}
+            </aside>
+          </main>
+        )}
 
-        <aside className="col report">
-          <div className="panel verdict-panel">
-            <h2>Tier 1 — Jev triage</h2>
-            {backend.verdict ? (
-              <VerdictView verdict={backend.verdict} />
-            ) : (
-              <p className="muted">
-                Run a simulation, then request triage from the sweep or curve
-                panel.
-              </p>
-            )}
-            {unified && (
-              <button
-                className="action-btn"
-                onClick={async () => {
-                  await backend.requestTier2(backend.simResult.run_id);
-                  setReportOpen(true);
-                }}
-                disabled={!backend.connected || backend.busy}
-              >
-                Request Tier 2 report
-              </button>
-            )}
-          </div>
-          {backend.tier2Report && reportOpen && (
-            <div className="panel tier2-panel">
-              <div className="panel-head">
-                <h2>Tier 2 — Frontier synthesis</h2>
-                <span className="chip">
-                  {backend.tier2Report.azure ? "Azure AI Foundry" : "local fallback"}
-                </span>
-                <button
-                  className="close-btn"
-                  onClick={() => setReportOpen(false)}
-                  aria-label="Close report"
-                >
-                  ×
-                </button>
-              </div>
-              <MarkdownView markdown={backend.tier2Report.markdown} />
-            </div>
-          )}
-        </aside>
-      </main>
+        {tab === "graphs" && (
+          <main className="layout layout-graphs">
+            <MoreGraphs
+              history={history}
+              frame={frame}
+              frameIndex={frameIndex}
+              ambientK={config.ambient_temperature_k}
+              finalData={finalData}
+            />
+          </main>
+        )}
+      </ErrorBoundary>
+
       <footer className="app-footer">
         <p>
           NASA Space Apps 2026 — “Flame in Free-Fall”. AI-assisted code &amp;
@@ -240,37 +303,10 @@ function ViewToggle({ mode, onChange }) {
   );
 }
 
-function VerdictView({ verdict }) {
-  const v = verdict.verdict ?? verdict;
-  const rows = [
-    ["Morphology", v.flame_morphology],
-    ["Buoyant convection", String(v.buoyancy_driven_convection)],
-    ["Profile match", v.nasa_experiment_profile_match],
-    ["Soot score", `${v.soot_volume_fraction_score}/100`],
-    ["Radiant loss critical", String(v.radiant_heat_loss_critical)],
-    ["Stability", `${v.stability_score}/100`],
-    ["Delta", `${v.delta_score}/100`],
-    ["Confidence", v.confidence_score],
-  ];
-  return (
-    <table className="verdict-table">
-      <tbody>
-        {rows.map(([k, val]) => (
-          <tr key={k}>
-            <th scope="row">{k}</th>
-            <td>{val}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
 function MarkdownView({ markdown }) {
   // Tiny, dependency-free Markdown-ish renderer for the Tier 2 report.
   const lines = markdown.split("\n");
   const out = [];
-  let inList = false;
   let para = [];
   const flushPara = (key) => {
     if (para.length) {
@@ -288,21 +324,12 @@ function MarkdownView({ markdown }) {
     } else if (line.startsWith("- ")) {
       flushPara(`p${i}`);
       out.push(<li key={i}>{line.slice(2)}</li>);
-      inList = true;
     } else if (!line.trim()) {
       flushPara(`p${i}`);
-      inList = false;
     } else {
       para.push(line);
     }
   });
   flushPara("pEnd");
   return <div className="markdown">{out}</div>;
-}
-
-function findNearestGroundTruth(unified) {
-  // Ground truth arrives with sweep/sim messages in production; for now the
-  // backend attaches the closest synthetic PSI run to each verdict. The
-  // overlay consumes whatever shape arrives.
-  return unified ?? null;
 }

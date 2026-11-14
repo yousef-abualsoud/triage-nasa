@@ -32,27 +32,41 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 
 Or one command with Docker: `docker compose up --build` (serves everything).
 
-## The 3-step walkthrough
+## The walkthrough (three tabs)
 
-1. **Run a simulation.** Pick a fuel preset (CH4/C2H4/C3H8/H2 — thermochemistry
-   auto-populates from `src/shared/species_db.json`), set O2%, ambient
-   pressure, gravity mode (Zero-G / ISS Micro-G / Earth 1G / Mars / Moon), and
-   ignition energy. Press **Run simulation** — the flame renders live as a
-   **3D volumetric view** (three.js raymarched emission-absorption shader;
-   drag to orbit, wheel to zoom), with a flat 2D heatmap toggle.
+The dashboard is organized in three tabs (the page background is a hexagon
+mesh in the same accent color as the sliders):
 
-2. **Compare against NASA flight data.** The **Burn Curves** panel overlays the
-   C++ prediction (solid) against historical ISS ACME/Saffire telemetry
-   (dashed markers) for the nearest matching boundary conditions. Run an
-   **O2 sweep** to map the quench boundary across the parameter space.
+1. **Tab 1 · Run & Calculations.** Pick a fuel preset (CH4/C2H4/C3H8/H2 —
+   thermochemistry auto-populates from `src/shared/species_db.json`) or create
+   your own **custom preset**: it persists on the backend
+   (`data/custom_fuels.json`) and edits the same database variables (A, Ea,
+   LHV, cp, k, D, reaction orders, soot tendency, …). Set O2%, ambient
+   pressure, gravity mode (Zero-G / ISS Micro-G / Earth 1G / Mars / Moon) — or
+   **custom gravity** with your own g magnitude and jitter — ignition energy,
+   and the **iteration count**. The solver step Δt runs from 0.001 s up to
+   1 s; run length = iterations x Δt (end time is gone). Every slider also
+   accepts a directly typed value: click the number and type. Press **Run
+   simulation** and watch the **Iteration Graph** and **Active Calculations**
+   trace fill with per-step scalars as the solver computes.
 
-3. **Let the AI triage.** Each run is scored by a Tier-1 decision engine
-   (`typesafe/jev-latest`) against the nearest NASA ground truth — morphology,
-   buoyancy, soot, delta score. Click any sweep point for its verdict; the
-   **Tier 2 report** (Azure AI Foundry, gated to top-1% anomalies or user
-   request) produces a Markdown fire-safety diagnostic grounded in the 2015
-   *ISS Combustion Science Researcher's Guide* and the Apollo 1 / Apollo 13 /
-   Mir 1997 incident history, with Moon/Mars ECLSS recommendations.
+2. **Tab 2 · Fire Visuals & Analysis.** The flame renders in the left column
+   as a **3D volumetric view** (three.js raymarched emission-absorption
+   shader; drag to orbit, wheel to zoom) with a flat 2D heatmap toggle, plus
+   the **Burn Curves** overlay against NASA PSI telemetry. Below it, the
+   **Jev Experiment Comparison** panel scores the run against the nearest NASA
+   ground truth with field-level agreement percentages (peak T, flame radius,
+   O2, pressure) and the tier-1 verdict. On the center/right, the big
+   **Tier 2 report** panel (Azure AI Foundry, gated to top-1% anomalies or an
+   explicit user click) produces a Markdown fire-safety diagnostic grounded in
+   the 2015 *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
+   Apollo 13 / Mir 1997 incident history, with Moon/Mars ECLSS
+   recommendations.
+
+3. **Tab 3 · More Graphs.** Soot index & mean temperature, fuel burned
+   fraction, buoyancy kinetic energy, the angle-averaged radial temperature
+   profile of the current frame, and rule-based **suggestions** read off the
+   run's own numbers.
 
 ## Architecture
 

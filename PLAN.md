@@ -13,12 +13,22 @@
       CSV parsing + deterministic synthetic ground truth (72 runs)
 - [x] `src/python/jev_client.py` — Tier 1 concurrent triage + local heuristic
 - [x] `src/python/azure_frontier_client.py` — Tier 2 synthesis + fallback report
-- [x] `src/python/server.py` — full-duplex WebSocket, sweeps, run cache
-- [x] Frontend: App / hooks / ControlPanel / FlameField3D (three.js
-      raymarched axisymmetric volumetric view, orbit controls, 3D/2D toggle,
-      WebGL fallback to heatmap) / FlameField2D (y-flip fixed) /
-      BurnCurveOverlay / ScatterPlot — e2e verified in-browser (3D zero-G
-      centered sphere; 1G plume rises with t; sweep → 6 triage dots)
+- [x] `src/python/server.py` — full-duplex WebSocket, sweeps, run cache,
+      fuel preset CRUD (`fuel_list` / `fuel_save` / `fuel_delete`), triage
+      replies carry the nearest PSI ground truth
+- [x] Frontend: three-tab dashboard (Run & Calculations / Fire Visuals &
+      Analysis / More Graphs) with sticky tab nav and a hexagon-mesh
+      background in the slider accent color. ControlPanel (custom fuel preset
+      editor with persisted DB variables, custom gravity, iteration count,
+      click-to-edit slider values, wall condition removed), IterationGraph,
+      CalculationLog (live per-step trace), FlameField3D (three.js raymarched
+      axisymmetric volumetric view, 3D/2D toggle), JevComparison (field-level
+      agreement % vs nearest PSI run), Tier 2 report panel, MoreGraphs
+      (soot/mean-T, burned fraction, buoyancy KE, radial profile) +
+      Suggestions, BurnCurveOverlay. O₂ sweep graph removed per spec. E2E
+      verified in-browser (all tabs render; custom fuel create/select/run/
+      delete persists; custom gravity run; triage %s; Tier 2 local fallback;
+      3D canvas luminance probe centroid 0.517 at g=3.7)
 - [x] README (judge quick start + AI disclosure + 3D axisymmetry disclosure)
 
 ## Solver seam contract (binding)
@@ -35,8 +45,12 @@
 - Files landing in `src/cpp/`: `physics_solver.cpp`, `adi_solver.cpp`,
   `thomas_algorithm.cpp`, `thomas_algorithm.hpp`, `bindings.cpp`.
 - Physics: Fick + Fourier + single-step Arrhenius (reduced), buoyancy source
-  (rho_inf - rho), forced-flow advection for Saffire mode, adiabatic/isothermal
-  wall. Strictly 2D (no L_z / z fields).
+  (rho_inf - rho), forced-flow advection for Saffire mode, adiabatic walls
+  (wall-mode UI removed). Strictly 2D (no L_z / z fields).
+- Run length is `iteration_count x dt_s` (no end_time_s); dt_s may be up to
+  1 s per step. Custom gravity arrives as `gravity_mode == "custom"` with
+  `custom_gravity_m_per_s2` / `custom_g_jitter_m_per_s2`; custom fuels are
+  resolved from `data/custom_fuels.json` (merged onto species_db presets).
 
 ## Remaining blocks
 
