@@ -20,6 +20,7 @@ export function useTriageBackend() {
   const [sweepResults, setSweepResults] = useState(null);
   const [verdict, setVerdict] = useState(null);
   const [tier2Report, setTier2Report] = useState(null);
+  const [fuelInfo, setFuelInfo] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -55,9 +56,41 @@ export function useTriageBackend() {
         pendingRef.current.delete(m.run_id);
       }
     },
+    fuel_list: (m) => {
+      setFuelInfo(m);
+      setBusy(false);
+      const res = pendingRef.current.get("fuel_list");
+      if (res) {
+        res(m);
+        pendingRef.current.delete("fuel_list");
+      }
+    },
+    fuel_saved: (m) => {
+      setFuelInfo(m);
+      setBusy(false);
+      const res = pendingRef.current.get(`fuel_save:${m.key}`);
+      if (res) {
+        res(m);
+        pendingRef.current.delete(`fuel_save:${m.key}`);
+      }
+    },
+    fuel_deleted: (m) => {
+      setFuelInfo(m);
+      setBusy(false);
+      const res = pendingRef.current.get(`fuel_delete:${m.key}`);
+      if (res) {
+        res(m);
+        pendingRef.current.delete(`fuel_delete:${m.key}`);
+      }
+    },
     error: (m) => {
       setError(m.message);
       setBusy(false);
+      // Reject any pending promise so awaits throw instead of hanging.
+      for (const [k, res] of pendingRef.current) {
+        res({ __error: m.message });
+        pendingRef.current.delete(k);
+      }
     },
     pong: () => setBusy(false),
   });
@@ -104,6 +137,11 @@ export function useTriageBackend() {
     return true;
   }, []);
 
+  // Request the merged fuel preset list (built-ins + persisted customs).
+  const refreshFuels = useCallback(() => {
+    send({ kind: "fuel_list" });
+  }, [send]);
+
   const sendConfig = useCallback(
     (config) => send({ kind: "config", config }),
     [send]
@@ -141,12 +179,30 @@ export function useTriageBackend() {
     sweepResults,
     verdict,
     tier2Report,
+    fuelInfo,
     error,
     busy,
     sendConfig,
     sendSweep,
     requestTriage,
     requestTier2,
+    refreshFuels,
+    saveFuel: async (key, data) => {
+      const res = await new Promise((resolve) => {
+        pendingRef.current.set(`fuel_save:${key}`, resolve);
+        send({ kind: "fuel_save", key, data });
+      });
+      if (res?.__error) throw new Error(res.__error);
+      return res;
+    },
+    deleteFuel: async (key) => {
+      const res = await new Promise((resolve) => {
+        pendingRef.current.set(`fuel_delete:${key}`, resolve);
+        send({ kind: "fuel_delete", key });
+      });
+      if (res?.__error) throw new Error(res.__error);
+      return res;
+    },
     clearError: () => setError(null),
   };
 }

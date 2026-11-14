@@ -46,11 +46,10 @@
     "ny": 128,
     "domain_length_m": 0.08,
     "domain_height_m": 0.08,
-    "dt_s": 0.0005,
-    "end_time_s": 2.0,
+    "dt_s": 0.001,
+    "iteration_count": 200,
     "output_interval_steps": 4,
     "ignition_region_m": 0.003,
-    "wall_thermal_mode": "adiabatic",
     "solver": "adi-thomas"
   },
   "unit_conversions": {

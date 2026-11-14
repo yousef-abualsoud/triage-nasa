@@ -8,7 +8,8 @@ Three representations of one reality, all sharing a compact JSON shape (<250 tok
 
 Solver seam contract (binding for the real pybind11 module, to be implemented in src/cpp/):
     triage_core.run_simulation(config: dict) -> dict
-        config keys = SimConfig.model_dump() with "fuel" resolved to the species_db key.
+        config keys = SimConfig.model_dump() with "fuel" resolved to a preset key
+        from species_db.json or a persisted custom preset (data/custom_fuels.json).
         Returns:
             frames: list[list[list[float]]]  # T field, row-major [ny][nx], Kelvin
             times:  list[float]              # seconds, len == len(frames)
@@ -33,10 +34,20 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 SHARED_DIR = Path(__file__).resolve().parent.parent / "shared"
+CUSTOM_FUELS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "custom_fuels.json"
 FUELS = ("CH4", "C2H4", "C3H8", "H2")
-GravityMode = Literal["zero_g", "iss_micro_g", "earth_1g", "mars_g", "moon_g"]
+GravityMode = Literal["zero_g", "iss_micro_g", "earth_1g", "mars_g", "moon_g", "custom"]
 IgnitionMethod = Literal["hot_spot", "energy_deposition"]
-WallMode = Literal["adiabatic", "isothermal"]
+
+
+def custom_fuel_keys() -> tuple[str, ...]:
+    """Persisted custom preset keys (data/custom_fuels.json), sorted."""
+    if not CUSTOM_FUELS_PATH.exists():
+        return ()
+    try:
+        return tuple(sorted(json.loads(CUSTOM_FUELS_PATH.read_text(encoding="utf-8")).keys()))
+    except (json.JSONDecodeError, OSError):
+        return ()
 
 
 def load_json(name: str) -> dict[str, Any]:
@@ -57,6 +68,8 @@ class SimConfig(BaseModel):
     ambient_pressure_bar: float = Field(1.0, ge=0.1, le=10.0)
     ambient_temperature_k: float = Field(300.0, ge=200.0, le=500.0)
     gravity_mode: GravityMode = "zero_g"
+    custom_gravity_m_per_s2: float = Field(3.7, ge=0.0, le=50.0, description="g magnitude when gravity_mode == 'custom'")
+    custom_g_jitter_m_per_s2: float = Field(0.0, ge=0.0, le=1.0)
     inlet_velocity_ms: float = Field(0.0, ge=0.0, le=2.0)
     ignition_method: IgnitionMethod = "energy_deposition"
     ignition_energy_j: float = Field(2.0, ge=0.01, le=100.0)
@@ -64,10 +77,8 @@ class SimConfig(BaseModel):
     # --- Advanced (collapsed accordion) ---
     nx: int = Field(128, ge=16, le=512)
     ny: int = Field(128, ge=16, le=512)
-    dt_s: float = Field(5e-4, gt=0.0, le=0.05)
-    end_time_s: float = Field(2.0, gt=0.0, le=20.0)
-    wall_thermal_mode: WallMode = "adiabatic"
-    wall_temperature_k: float = Field(300.0, ge=200.0, le=2500.0)
+    dt_s: float = Field(1e-3, gt=0.0, le=1.0, description="Solver step size (s); run length is set by iteration_count x dt")
+    iteration_count: int = Field(200, ge=1, le=20000, description="Number of solver steps to run")
     pre_exponential_override: Optional[float] = Field(None, description="Arrhenius A override")
     activation_energy_override: Optional[float] = Field(None, description="Arrhenius Ea override")
     domain_length_m: float = Field(0.08, gt=0.0)
@@ -82,13 +93,18 @@ class SimConfig(BaseModel):
     @field_validator("fuel")
     @classmethod
     def _fuel_in_db(cls, v: str) -> str:
-        if v not in FUELS:
-            raise ValueError(f"fuel must be one of {FUELS}, got {v!r}")
+        if v not in FUELS + custom_fuel_keys():
+            raise ValueError(f"fuel must be a preset key (built-in or custom), got {v!r}")
         return v
 
     def resolved_chemistry(self) -> dict[str, float]:
-        """Merge the species_db preset with any Arrhenius overrides."""
-        preset = SPECIES_DB["fuels"][self.fuel]
+        """Merge the species_db/custom preset with any Arrhenius overrides."""
+        if self.fuel in FUELS:
+            preset = SPECIES_DB["fuels"][self.fuel]
+        else:
+            from fuel_db import list_presets  # local module, avoids import cycle at load
+
+            preset = list_presets()[self.fuel]
         chem = {k: float(v) for k, v in preset.items() if isinstance(v, (int, float)) and k != "stoichiometric_fuel_o2_ratio"}
         chem["stoich_fuel_o2"] = float(preset["stoichiometric_fuel_o2_ratio"])
         if self.pre_exponential_override is not None:
@@ -99,6 +115,8 @@ class SimConfig(BaseModel):
 
     def gravity(self) -> tuple[float, float]:
         """(magnitude, jitter) in m/s^2 for the selected gravity mode."""
+        if self.gravity_mode == "custom":
+            return float(self.custom_gravity_m_per_s2), float(self.custom_g_jitter_m_per_s2)
         gm = CONSTANTS["gravity_modes"][self.gravity_mode]
         return float(gm["g_m_per_s2"]), float(gm["g_jitter_m_per_s2"])
 
@@ -133,8 +151,10 @@ class UnifiedPayload(BaseModel):
     @field_validator("fuel")
     @classmethod
     def _fuel_ok(cls, v: str) -> str:
-        if v not in FUELS:
-            raise ValueError(f"fuel must be one of {FUELS}, got {v!r}")
+        if v not in FUELS + custom_fuel_keys():
+            raise ValueError(
+                f"fuel must be a preset key (built-in or custom), got {v!r}"
+            )
         return v
 
 

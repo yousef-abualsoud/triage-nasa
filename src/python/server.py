@@ -5,12 +5,16 @@ Protocol (JSON envelopes):
   inbound:
     {kind: "config", config: {...SimConfig fields}}        -> re-run live sim
     {kind: "sweep", sweep: {param: [values...]}}           -> parameter sweep
-    {kind: "triage", run_id: str}                          -> tier 1 verdict for cached run
-    {kind: "tier2", run_id: str}                           -> tier 2 report (top-1% / user click)
+    {kind: "triage", run_id: str}                          -> tier 1 verdict + nearest PSI GT
+    {kind: "tier2", run_id: str}                           -> tier 2 report (Azure-gated)
+    {kind: "fuel_list"}                                    -> merged presets + field ranges
+    {kind: "fuel_save", key, data}                         -> create/update custom preset
+    {kind: "fuel_delete", key}                             -> remove custom preset
     {kind: "ping"}
   outbound:
     {kind: "sim_result", ...}  {kind: "sweep_result", ...}
-    {kind: "triage", ...}      {kind: "tier2_report", ...}
+    {kind: "triage", verdict, ground_truth}  {kind: "tier2_report", ...}
+    {kind: "fuel_list" | "fuel_saved" | "fuel_deleted", fuels, fields}
     {kind: "error", message}   {kind: "pong"}
 
 Run:  .venv/bin/python src/python/server.py   (serves on ws://localhost:8765)
@@ -30,6 +34,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import websockets  # noqa: E402
 
 from azure_frontier_client import azure_configured, synthesize  # noqa: E402
+from fuel_db import FUEL_FIELDS, list_presets  # noqa: E402
+import fuel_db  # noqa: E402
 from jev_client import triage_pair  # noqa: E402
 from s3_ingest import load_ground_truth  # noqa: E402
 from schema import (  # noqa: E402
@@ -79,6 +85,7 @@ async def _handle_config(config: dict[str, Any]) -> dict[str, Any]:
 
 SWEEP_PARAMS = {
     "oxygen_pct", "ambient_pressure_bar", "inlet_velocity_ms", "ignition_energy_j",
+    "iteration_count", "ambient_temperature_k", "custom_gravity_m_per_s2",
 }
 
 
@@ -141,15 +148,46 @@ async def _nearest_ground_truth(sim: UnifiedPayload) -> UnifiedPayload:
     return best[1]
 
 
+async def _handle_fuel_list() -> dict[str, Any]:
+    presets = list_presets()
+    fuels = {k: {"name": v.get("name", k), "formula": v.get("formula", k), "custom": k not in ("CH4", "C2H4", "C3H8", "H2")} for k, v in presets.items()}
+    return {
+        "kind": "fuel_list",
+        "fuels": fuels,
+        "fields": {k: {"min": lo, "max": hi} for k, (lo, hi) in FUEL_FIELDS.items()},
+    }
+
+
+async def _handle_fuel_save(key: str, data: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(key, str) or not key.strip():
+        raise ValueError("fuel key required")
+    presets = await asyncio.to_thread(fuel_db.save_preset, key, data or {})
+    fuels = {k: {"name": v.get("name", k), "formula": v.get("formula", k), "custom": k not in ("CH4", "C2H4", "C3H8", "H2")} for k, v in presets.items()}
+    return {"kind": "fuel_saved", "key": key.strip().upper(), "fuels": fuels, "fields": {k: {"min": lo, "max": hi} for k, (lo, hi) in FUEL_FIELDS.items()}}
+
+
+async def _handle_fuel_delete(key: str) -> dict[str, Any]:
+    presets = await asyncio.to_thread(fuel_db.delete_preset, key)
+    fuels = {k: {"name": v.get("name", k), "formula": v.get("formula", k), "custom": k not in ("CH4", "C2H4", "C3H8", "H2")} for k, v in presets.items()}
+    return {"kind": "fuel_deleted", "key": key, "fuels": fuels}
+
+
 async def _handle_triage(run_id: str) -> dict[str, Any]:
     if run_id not in _RUN_CACHE:
         raise ValueError(f"unknown run_id {run_id!r}")
     res, sim_payload, verdict = _RUN_CACHE[run_id]
+    gt = await _nearest_ground_truth(sim_payload)
     if verdict is None:
-        gt = await _nearest_ground_truth(sim_payload)
         verdict = await triage_pair(gt, sim_payload)
         _RUN_CACHE[run_id] = (res, sim_payload, verdict)
-    return {"kind": "triage", "run_id": run_id, "verdict": verdict.model_dump()}
+    return {
+        "kind": "triage",
+        "run_id": run_id,
+        "verdict": verdict.model_dump(),
+        # The nearest PSI ground truth ships with the verdict so the UI can
+        # render field-level agreement percentages without a second round trip.
+        "ground_truth": gt.model_dump(),
+    }
 
 
 async def _handle_tier2(run_id: str) -> dict[str, Any]:
@@ -175,6 +213,12 @@ async def _dispatch(raw: str) -> dict[str, Any]:
     if kind == "sweep":
         base = msg.get("base", {})
         return await _handle_sweep(msg.get("sweep", {}), base)
+    if kind == "fuel_list":
+        return await _handle_fuel_list()
+    if kind == "fuel_save":
+        return await _handle_fuel_save(msg.get("key", ""), msg.get("data", {}))
+    if kind == "fuel_delete":
+        return await _handle_fuel_delete(msg.get("key", ""))
     if kind == "triage":
         return await _handle_triage(msg["run_id"])
     if kind == "tier2":

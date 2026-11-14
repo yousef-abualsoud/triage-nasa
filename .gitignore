@@ -23,3 +23,5 @@ data/processed/
 .aider*
 *.log
 .DS_Store
+# Runtime user data (custom fuel presets persist per-machine)
+data/custom_fuels.json
