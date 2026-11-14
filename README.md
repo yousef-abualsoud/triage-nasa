@@ -50,23 +50,24 @@ mesh in the same accent color as the sliders):
    simulation** and watch the **Iteration Graph** and **Active Calculations**
    trace fill with per-step scalars as the solver computes.
 
-2. **Tab 2 · Fire Visuals & Analysis.** The flame renders in the left column
-   as a **3D volumetric view** (three.js raymarched emission-absorption
-   shader; drag to orbit, wheel to zoom) with a flat 2D heatmap toggle, plus
-   the **Burn Curves** overlay against NASA PSI telemetry. Below it, the
-   **Jev Experiment Comparison** panel scores the run against the nearest NASA
+2. **Tab 2 · Fire Visuals & Analysis.** The flame renders in a compact left
+   rail as a **3D volumetric view** (three.js raymarched emission-absorption
+   shader; drag to orbit, wheel to zoom) with a flat 2D heatmap toggle, time
+   scrubber and final-run stats. Directly beneath it, the small **Jev
+   Experiment Comparison** panel scores the run against the nearest NASA
    ground truth with field-level agreement percentages (peak T, flame radius,
-   O2, pressure) and the tier-1 verdict. On the center/right, the big
-   **Tier 2 report** panel (Azure AI Foundry, gated to top-1% anomalies or an
-   explicit user click) produces a Markdown fire-safety diagnostic grounded in
+   O2, pressure) and a dense tier-1 verdict grid — all visible without
+   scrolling. The center and right of the tab belong to the big **Tier 2
+   report** panel (Azure AI Foundry, gated to top-1% anomalies or an explicit
+   user click), which produces a Markdown fire-safety diagnostic grounded in
    the 2015 *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
    Apollo 13 / Mir 1997 incident history, with Moon/Mars ECLSS
    recommendations.
 
-3. **Tab 3 · More Graphs.** Soot index & mean temperature, fuel burned
-   fraction, buoyancy kinetic energy, the angle-averaged radial temperature
-   profile of the current frame, and rule-based **suggestions** read off the
-   run's own numbers.
+3. **Tab 3 · More Graphs.** Burn curves vs NASA PSI flight telemetry, soot
+   index & mean temperature, fuel burned fraction, buoyancy kinetic energy,
+   the angle-averaged radial temperature profile of the current frame, and
+   rule-based **suggestions** read off the run's own numbers.
 
 ## Architecture
 

@@ -1,9 +1,10 @@
 import React from "react";
 
 /**
- * Jev experiment comparison with match percentages: the tier-1 verdict
- * expressed as per-field agreement % against the nearest NASA PSI ground
- * truth (shipped with the triage reply) plus the verdict's own scores.
+ * Compact Jev experiment comparison for the Tab-2 left rail: per-field
+ * agreement % against the nearest NASA PSI ground truth (shipped with the
+ * triage reply), plus the tier-1 verdict as a dense two-column key/value
+ * grid so the whole panel fits under the visualizer without scrolling.
  */
 export default function JevComparison({ verdictMsg, sim, onTriage, busy, connected }) {
   const v = verdictMsg?.verdict;
@@ -17,24 +18,24 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
   const rows = [];
   if (v && sim && gt) {
     rows.push({
-      label: "Peak temperature",
+      label: "Peak temp",
       value: pct(sim.peak_temp_k, gt.peak_temp_k, 2500),
-      detail: `${Math.round(sim.peak_temp_k ?? 0)} K vs ${Math.round(gt.peak_temp_k ?? 0)} K`,
+      detail: `sim ${Math.round(sim.peak_temp_k ?? 0)} K vs NASA ${Math.round(gt.peak_temp_k ?? 0)} K`,
     });
     rows.push({
       label: "Flame radius",
       value: pct(sim.max_radius_mm, gt.max_radius_mm, 40),
-      detail: `${(sim.max_radius_mm ?? 0).toFixed(1)} mm vs ${(gt.max_radius_mm ?? 0).toFixed(1)} mm`,
+      detail: `sim ${(sim.max_radius_mm ?? 0).toFixed(1)} mm vs NASA ${(gt.max_radius_mm ?? 0).toFixed(1)} mm`,
     });
     rows.push({
-      label: "Oxygen %",
+      label: "Oxygen",
       value: pct(sim.oxygen_pct, gt.oxygen_pct, 40),
-      detail: `${(sim.oxygen_pct ?? 0).toFixed(1)} % vs ${(gt.oxygen_pct ?? 0).toFixed(1)} %`,
+      detail: `sim ${(sim.oxygen_pct ?? 0).toFixed(1)} % vs NASA ${(gt.oxygen_pct ?? 0).toFixed(1)} %`,
     });
     rows.push({
       label: "Pressure",
       value: pct(sim.ambient_pressure_bar, gt.ambient_pressure_bar, 3),
-      detail: `${(sim.ambient_pressure_bar ?? 0).toFixed(2)} vs ${(gt.ambient_pressure_bar ?? 0).toFixed(2)} bar`,
+      detail: `sim ${(sim.ambient_pressure_bar ?? 0).toFixed(2)} bar vs NASA ${(gt.ambient_pressure_bar ?? 0).toFixed(2)} bar`,
     });
   }
 
@@ -55,17 +56,20 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
     <div className="panel jev-panel">
       <div className="panel-head">
         <h2>Jev Experiment Comparison</h2>
-        {v?.buoyancy_driven_convection != null && (
-          <span className="chip">
-            buoyant: {String(v.buoyancy_driven_convection)}
-          </span>
-        )}
+        <button
+          type="button"
+          className="action-btn mini-btn"
+          onClick={onTriage}
+          disabled={!connected || busy || !onTriage}
+        >
+          {v ? "Re-run triage" : "Run triage"}
+        </button>
       </div>
 
       {!v && (
-        <p className="muted small">
-          Run a simulation, then run the tier-1 verdict to compare it against
-          the nearest NASA PSI ground-truth run.
+        <p className="muted small jev-empty">
+          Run the tier-1 verdict to compare this run against the nearest NASA
+          PSI ground truth.
         </p>
       )}
 
@@ -73,13 +77,12 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
         <div className="pct-rows">
           {rows.map((r) =>
             r.value == null ? null : (
-              <div className="pct-row" key={r.label}>
+              <div className="pct-row" key={r.label} title={r.detail}>
                 <span className="pct-label">{r.label}</span>
                 <span className="pct-bar">
                   <i style={{ width: `${Math.min(r.value, 100)}%` }} />
                 </span>
                 <span className="pct-val">{r.value.toFixed(0)}%</span>
-                <span className="muted small pct-detail">{r.detail}</span>
               </div>
             )
           )}
@@ -87,28 +90,21 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
       )}
 
       {v && (
-        <table className="verdict-table">
-          <tbody>
-            {verdictRows.map(([k, val]) => (
-              <tr key={k}>
-                <th scope="row">{k}</th>
-                <td>{val}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="kv-grid">
+          {verdictRows.map(([k, val]) => (
+            <div className="kv" key={k}>
+              <span>{k}</span>
+              <b>{val}</b>
+            </div>
+          ))}
+        </div>
       )}
 
-      {v?.notes && <p className="muted small jev-notes">{v.notes}</p>}
-
-      <button
-        className="action-btn"
-        onClick={onTriage}
-        disabled={!connected || busy || !onTriage}
-        style={{ marginTop: 10 }}
-      >
-        {v ? "Re-run Jev triage" : "Run Jev triage"}
-      </button>
+      {v?.notes && (
+        <p className="muted small jev-notes" title={v.notes}>
+          {v.notes}
+        </p>
+      )}
     </div>
   );
 }

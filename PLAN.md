@@ -23,9 +23,10 @@
       click-to-edit slider values, wall condition removed), IterationGraph,
       CalculationLog (live per-step trace), FlameField3D (three.js raymarched
       axisymmetric volumetric view, 3D/2D toggle), JevComparison (field-level
-      agreement % vs nearest PSI run), Tier 2 report panel, MoreGraphs
-      (soot/mean-T, burned fraction, buoyancy KE, radial profile) +
-      Suggestions, BurnCurveOverlay. O₂ sweep graph removed per spec. E2E
+      agreement % vs nearest PSI run, compact rail under the visualizer),
+      full-height Tier 2 report panel dominating Tab 2, MoreGraphs
+      (burn curves vs PSI telemetry, soot/mean-T, burned fraction, buoyancy
+      KE, radial profile) + Suggestions. O₂ sweep graph removed per spec. E2E
       verified in-browser (all tabs render; custom fuel create/select/run/
       delete persists; custom gravity run; triage %s; Tier 2 local fallback;
       3D canvas luminance probe centroid 0.517 at g=3.7)

@@ -1,15 +1,26 @@
 import React, { useEffect, useRef } from "react";
 import * as d3 from "d3";
+import BurnCurveOverlay from "./BurnCurveOverlay.jsx";
 
 /**
- * Tab 3: additional graphs — soot index & mean temperature history, fuel
- * burned fraction, buoyancy kinetic energy, and the radial temperature
- * profile of the current frame — plus heuristic suggestions read off the
- * run's own numbers (grounded, no external calls).
+ * Tab 3: additional graphs — burn curves vs NASA PSI telemetry, soot index &
+ * mean temperature history, fuel burned fraction, buoyancy kinetic energy,
+ * and the radial temperature profile of the current frame — plus heuristic
+ * suggestions read off the run's own numbers (grounded, no external calls).
  */
-export default function MoreGraphs({ history, frame, frameIndex, ambientK, finalData }) {
+export default function MoreGraphs({
+  history,
+  frame,
+  frameIndex,
+  ambientK,
+  finalData,
+  groundTruth,
+}) {
   return (
     <div className="graphs-grid">
+      <div className="graphs-wide">
+        <BurnCurveOverlay simHistory={history} groundTruth={groundTruth} />
+      </div>
       <HistoryGraph
         history={history}
         series={[

@@ -6,7 +6,6 @@ import FlameField3D from "./components/FlameField3D.jsx";
 import IterationGraph from "./components/IterationGraph.jsx";
 import CalculationLog from "./components/CalculationLog.jsx";
 import JevComparison from "./components/JevComparison.jsx";
-import BurnCurveOverlay from "./components/BurnCurveOverlay.jsx";
 import MoreGraphs from "./components/MoreGraphs.jsx";
 
 const DEFAULT_CONFIG = {
@@ -214,12 +213,6 @@ export default function App() {
                   }
                 />
               )}
-              <BurnCurveOverlay
-                simHistory={history}
-                groundTruth={groundTruth}
-              />
-            </section>
-            <aside className="col report">
               <JevComparison
                 verdictMsg={backend.verdict}
                 sim={unified}
@@ -229,34 +222,36 @@ export default function App() {
                 busy={backend.busy}
                 connected={backend.connected}
               />
-              {unified && (
-                <div className="panel tier2-panel">
-                  <div className="panel-head">
-                    <h2>Tier 2 — Frontier synthesis</h2>
-                    <span className="chip">
-                      {backend.tier2Report?.azure
-                        ? "Azure AI Foundry"
-                        : "local fallback"}
-                    </span>
-                  </div>
-                  <button
-                    className="action-btn primary"
-                    onClick={() => backend.requestTier2(runId)}
-                    disabled={!backend.connected || backend.busy}
-                  >
-                    Request Tier 2 report
-                  </button>
-                  {backend.tier2Report ? (
-                    <MarkdownView markdown={backend.tier2Report.markdown} />
-                  ) : (
+            </section>
+            <aside className="col report">
+              <div className="panel tier2-panel">
+                <div className="panel-head">
+                  <h2>Tier 2 — Frontier synthesis</h2>
+                  <span className="chip">
+                    {backend.tier2Report?.azure
+                      ? "Azure AI Foundry"
+                      : "local fallback"}
+                  </span>
+                </div>
+                <button
+                  className="action-btn primary"
+                  onClick={() => backend.requestTier2(runId)}
+                  disabled={!backend.connected || backend.busy || !runId}
+                >
+                  Request Tier 2 report
+                </button>
+                {backend.tier2Report ? (
+                  <MarkdownView markdown={backend.tier2Report.markdown} />
+                ) : (
+                  <div className="tier2-empty">
                     <p className="muted small">
                       The frontier model synthesizes a fire-safety diagnostic
                       from this run, the nearest NASA PSI comparison, and the
                       tier-1 verdict — with Moon/Mars ECLSS recommendations.
                     </p>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </aside>
           </main>
         )}
@@ -269,6 +264,7 @@ export default function App() {
               frameIndex={frameIndex}
               ambientK={config.ambient_temperature_k}
               finalData={finalData}
+              groundTruth={groundTruth}
             />
           </main>
         )}
@@ -308,22 +304,30 @@ function MarkdownView({ markdown }) {
   const lines = markdown.split("\n");
   const out = [];
   let para = [];
+  const inline = (text, keyPrefix) =>
+    text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+      part.startsWith("**") && part.endsWith("**") ? (
+        <strong key={`${keyPrefix}b${i}`}>{part.slice(2, -2)}</strong>
+      ) : (
+        <React.Fragment key={`${keyPrefix}t${i}`}>{part}</React.Fragment>
+      )
+    );
   const flushPara = (key) => {
     if (para.length) {
-      out.push(<p key={key}>{para.join(" ")}</p>);
+      out.push(<p key={key}>{inline(para.join(" "), key)}</p>);
       para = [];
     }
   };
   lines.forEach((line, i) => {
     if (line.startsWith("## ")) {
       flushPara(`p${i}`);
-      out.push(<h3 key={i}>{line.slice(3)}</h3>);
+      out.push(<h3 key={i}>{inline(line.slice(3), `h${i}`)}</h3>);
     } else if (line.startsWith("# ")) {
       flushPara(`p${i}`);
-      out.push(<h2 key={i}>{line.slice(2)}</h2>);
+      out.push(<h2 key={i}>{inline(line.slice(2), `h${i}`)}</h2>);
     } else if (line.startsWith("- ")) {
       flushPara(`p${i}`);
-      out.push(<li key={i}>{line.slice(2)}</li>);
+      out.push(<li key={i}>{inline(line.slice(2), `l${i}`)}</li>);
     } else if (!line.trim()) {
       flushPara(`p${i}`);
     } else {
