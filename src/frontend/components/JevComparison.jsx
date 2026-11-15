@@ -37,7 +37,18 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
       value: pct(sim.ambient_pressure_bar, gt.ambient_pressure_bar, 3),
       detail: `sim ${(sim.ambient_pressure_bar ?? 0).toFixed(2)} bar vs NASA ${(gt.ambient_pressure_bar ?? 0).toFixed(2)} bar`,
     });
+    if (sim.burn_duration_s != null && gt.burn_duration_s != null) {
+      rows.push({
+        label: "Burn duration",
+        value: pct(sim.burn_duration_s, gt.burn_duration_s, 30),
+        detail: `sim ${Number(sim.burn_duration_s).toFixed(1)} s vs NASA ${Number(gt.burn_duration_s).toFixed(1)} s`,
+      });
+    }
   }
+
+  const gtIdentity = gt?.test_point
+    ? `${gt.investigation || gt.accession || "PSI"} · ${gt.test_point}`
+    : gt?.investigation || (gt?.source === "synthetic" ? "Offline surrogate" : null);
 
   const verdictRows = v
     ? [
@@ -65,6 +76,26 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
           {v ? "Re-run triage" : "Run triage"}
         </button>
       </div>
+
+      {gtIdentity && (
+        <p
+          className="muted small jev-exp"
+          title={[gt.fuel_blend, gt.atmosphere, gt.facility].filter(Boolean).join(" · ")}
+        >
+          {gt.source === "synthetic" ? "⚠ " : ""}
+          {gtIdentity}
+          {gt.fuel_blend ? ` · ${gt.fuel_blend}` : ""}
+        </p>
+      )}
+
+      {gt?.burn_duration_s != null && (
+        <p className="muted small jev-exp">
+          NASA: {Number(gt.burn_duration_s).toFixed(1)} s burn ·{" "}
+          {gt.extinction ? "extinguished" : "stable"} · P{" "}
+          {Number(gt.ambient_pressure_bar).toFixed(2)} bar
+          {gt.peak_pmt_ua != null ? ` · PMT ${Number(gt.peak_pmt_ua).toFixed(2)} µA` : ""}
+        </p>
+      )}
 
       {!v && (
         <p className="muted small jev-empty">

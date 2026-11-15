@@ -8,6 +8,7 @@ import * as d3 from "d3";
  */
 export default function BurnCurveOverlay({ simHistory, groundTruth }) {
   const svgRef = useRef(null);
+  const hasGtProfile = Boolean(groundTruth?.profile_t?.length);
 
   useEffect(() => {
     if (!simHistory?.length) return;
@@ -160,12 +161,19 @@ export default function BurnCurveOverlay({ simHistory, groundTruth }) {
         <span className="legend">
           <i className="sw sim-temp" /> sim peak T
           <i className="sw sim-rad" /> sim radius
-          <i className="sw gt" /> NASA PSI telemetry
+          <i className="sw gt" /> NASA PSI {hasGtProfile ? "telemetry" : "conditions"}
         </span>
       </div>
       <svg ref={svgRef} className="burn-svg" role="img" aria-label="Burn curve overlay" />
       {!simHistory?.length && (
         <p className="muted small">Run a simulation to populate the overlay.</p>
+      )}
+      {groundTruth && !hasGtProfile && (
+        <p className="muted small">
+          {groundTruth.investigation || "NASA PSI"} {groundTruth.test_point || ""} carries
+          flows, ion current and PMT telemetry, not a radius/temperature series —
+          compare its conditions and burn duration in the Jev panel.
+        </p>
       )}
     </div>
   );

@@ -73,8 +73,8 @@ async def synthesize(
 ) -> str:
     """Produce the Tier 2 Markdown diagnostic. Local fallback if Azure unset."""
     context_lines = [
-        f"SIM_RUN: {sim.model_dump_json()}",
-        f"NASA_GROUND_TRUTH: {gt.model_dump_json() if gt else 'N/A'}",
+        f"SIM_RUN: {sim.model_dump_json(exclude_none=True)}",
+        f"NASA_GROUND_TRUTH: {gt.model_dump_json(exclude_none=True) if gt else 'N/A'}",
         f"TIER1_VERDICT: {verdict.model_dump_json()}",
         RESEARCHERS_GUIDE_2015,
         INCIDENT_HISTORY,
@@ -118,9 +118,23 @@ def _local_fallback_report(sim: UnifiedPayload, gt: UnifiedPayload | None, v: Je
     peak = sim.peak_temp_k or 0.0
     radius = sim.max_radius_mm or 0.0
     o2 = sim.oxygen_pct
-    gt_line = "no matching flight telemetry" if gt is None else (
-        f"NASA PSI ground truth: peak {gt.peak_temp_k} K, radius {gt.max_radius_mm} mm"
-    )
+    if gt is None:
+        gt_line = "no matching flight telemetry"
+    else:
+        measured: list[str] = []
+        if gt.test_point:
+            measured.append(f"{gt.investigation or 'PSI'} {gt.test_point}")
+        if gt.burn_duration_s is not None:
+            measured.append(
+                f"burn {gt.burn_duration_s:.1f} s "
+                f"({'extinguished' if gt.extinction else 'stable'})"
+            )
+        if gt.peak_temp_k is not None:
+            measured.append(f"peak {gt.peak_temp_k:.0f} K")
+        if gt.max_radius_mm is not None:
+            measured.append(f"radius {gt.max_radius_mm:.1f} mm")
+        measured.append(f"{gt.oxygen_pct:.1f}% O2 / {gt.ambient_pressure_bar:.2f} bar")
+        gt_line = "NASA PSI ground truth: " + ", ".join(measured)
     delta_line = f"Tier 1 delta score {v.delta_score}/100" if v.delta_score is not None else ""
     quench_line = (
         f"Quenching observed at t={sim.quench_time_s}s" if sim.quench_time_s

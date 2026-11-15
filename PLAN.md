@@ -23,16 +23,24 @@
       256-cell run; ~6.7× faster
 - [x] `src/python/server.py` — WebSocket server, sweeps, run cache, fuel CRUD,
       frame/time/history/radial alignment, triage + Tier-2 replies
-- [x] `src/python/s3_ingest.py` — anonymous PSI listing/download + synthetic GT
+- [x] `src/python/psi_repo.py` — public PSI repository API client: 24-investigation
+      Combustion Science catalogue, PSI-23 s-Flame file index, experimental
+      table / TP-log / telemetry parsers, curated ground-truth builder
+- [x] `data/psi/` — shipped catalogue + real s-Flame test-point summaries
+      (conditions, pressure, burn duration, ion current/PMT/radiometer,
+      stability); raw CSVs cached in gitignored `data/psi_cache/`
+- [x] `src/python/s3_ingest.py` — curated real data first, explicit synthetic
+      surrogate fallback (`source="synthetic"`)
 - [x] `src/python/jev_client.py` — tier-1 triage + 1D-spherical-aware heuristic;
-      PSI experiment id forwarded for profile matching
+      real PSI accession/test-point identity, measured-field scoring
 - [x] `src/python/azure_frontier_client.py` — tier-2 synthesis + fallback report
 - [x] Frontend: three-tab dashboard; ControlPanel with spherical inputs
       (mass flow, mixing mode, φ, oxidizer, r_min/r_max/Nr, BCs); painted
       2D/3D flame; Jev comparison; dominant Tier-2 panel; Tab-3 radial
       T/q̇/species profiles and T(r,t) heatmap; solver diagnostics in Suggestions
-- [x] Tests: 31 passed — thermochemistry/stoichiometry, grid/Thomas/transport,
-      solver end-to-end, C++/Python parity
+- [x] Tests: 42 passed — thermochemistry/stoichiometry, grid/Thomas/transport,
+      solver end-to-end, C++/Python parity, PSI parsers and real-metadata
+      reduction
 - [x] Internal as-built solver notes and the deferred revision tracker
       (kept out of the distributed repository)
 - [x] README (judge quick start + AI disclosure + 1D-spherical 3D disclosure)
@@ -64,19 +72,19 @@
 
 ## Remaining blocks
 
-1. **PSI metadata join** — map real ACME/Saffire experiment IDs to fuel/
-   gravity/BC fields (currently synthetic ground truth stands in).
-2. **Docker** — verify `docker compose up --build` end-to-end; the Dockerfile
-   now passes `pybind11_DIR`, builds the 1D sources, and no longer masks build
-   failures.
-3. **Revision tracker items** — deliberately deferred: continuity/momentum
+1. **Docker** — packaging fixed: `Dockerfile.frontend` builds the SPA and nginx
+   serves it on 8080; compose no longer bind-mounts gitignored `dist/`; the
+   backend image is lean; `.dockerignore` excludes docs/raw cache/build
+   artifacts. **End-to-end `docker compose up --build` still needs verification
+   on a machine with Docker** (not installed in the current environment).
+2. **Revision tracker items** — deliberately deferred: continuity/momentum
    coupling (R1/R2), low-Mach energy (R3), side-inlet geometry (R4), heat-release
    units (R5), Arrhenius calibration (R6/R20), r=0 (R7), full transport data
    (R8), conservation (R14), etc. Address in a future block, not during the
    as-written implementation.
-4. **Custom species/reaction CRUD UI** — data model/loading exists; the editor
+3. **Custom species/reaction CRUD UI** — data model/loading exists; the editor
    UI and arbitrary mechanism import/export are deferred (R16).
-5. **Demo video + pitch deck**; final README polish; tag `v1.0-submission`.
+4. **Demo video + pitch deck**; final README polish; tag `v1.0-submission`.
 
 ## Non-negotiable rules
 

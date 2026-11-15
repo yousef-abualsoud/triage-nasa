@@ -3,7 +3,7 @@ Unified data schema for T.R.I.A.G.E.
 
 Three representations of one reality, all sharing a compact JSON shape (<250 tokens):
   1. Live C++ engine runs        (via sim_bridge)
-  2. Historical NASA PSI runs    (via s3_ingest)
+  2. Historical NASA PSI runs    (via psi_repo)
   3. The unified payload sent to Jev triage (jev_client)
 
 Solver seam contract (binding for the real pybind11 module, to be implemented in src/cpp/):
@@ -12,7 +12,7 @@ Solver seam contract (binding for the real pybind11 module, to be implemented in
         from species_db.json or a persisted custom preset (data/custom_fuels.json).
         mechanism = resolved species/reaction arrays from mechanism.mechanism_payload().
         The physics core is a 1D spherical radial finite-volume model
-        (r_min_m..r_max_m, Nr cells) per Combustion_Solver_Architecture_English.docx.
+        (r_min_m..r_max_m, Nr cells) implementing the solver specification as written.
         Returns:
             frames: list[list[list[float]]]  # painted T field, row-major [ny][nx], Kelvin
             times:  list[float]              # seconds, len == len(frames)
@@ -206,7 +206,7 @@ class SimConfig(BaseModel):
 class UnifiedPayload(BaseModel):
     """Compact (<250 token) run descriptor — identical shape for PSI history and sim runs."""
 
-    source: Literal["sim", "psi"] = "sim"
+    source: Literal["sim", "psi", "synthetic"] = "sim"
     fuel: str
     oxygen_pct: float
     ambient_pressure_bar: float
@@ -217,12 +217,35 @@ class UnifiedPayload(BaseModel):
         None, description="PSI experiment id, when available (used by tier-1 profile matching)"
     )
 
+    # Real PSI experiment identity (set for curated s-Flame ground truth)
+    investigation: Optional[str] = None
+    accession: Optional[str] = None
+    test_point: Optional[str] = None
+    fuel_blend: Optional[str] = None
+    atmosphere: Optional[str] = None
+    facility: Optional[str] = None
+
     # Telemetry summary
     max_radius_mm: Optional[float] = None
     quench_time_s: Optional[float] = None
     peak_temp_k: Optional[float] = None
     soot_yield_index: Optional[float] = None
     stability: Optional[float] = None
+    burn_duration_s: Optional[float] = Field(
+        None, description="Measured burn duration (PSI) or solver run time (sim)"
+    )
+    extinction: Optional[bool] = Field(
+        None, description="PSI extinction event, or solver quench flag"
+    )
+    peak_ion_current_ua: Optional[float] = Field(
+        None, description="PSI s-Flame ion-current peak (microamps)"
+    )
+    peak_pmt_ua: Optional[float] = Field(
+        None, description="PSI s-Flame photomultiplier peak (microamps)"
+    )
+    peak_radiometer_v: Optional[float] = Field(
+        None, description="PSI s-Flame radiometer peak (volts, uncalibrated)"
+    )
     profile_r: list[float] = Field(default_factory=list, description="Downsampled radial/slice profile")
     profile_t: list[float] = Field(default_factory=list, description="Downsampled temperature history")
 
@@ -270,7 +293,14 @@ class SimResult(BaseModel):
     solver: str = Field(description="'triage_core' (C++) or 'reference' (NumPy 1D)")
 
     def to_unified(self) -> UnifiedPayload:
-        gm, _ = self.config.gravity()
+        diag = self.final.get("diagnostics") or {}
+        quench = self.final.get("quench_time_s")
+        run_end = diag.get("run_end_time_s")
+        burn_duration = (
+            float(quench)
+            if quench is not None
+            else (float(run_end) if run_end is not None else None)
+        )
         return UnifiedPayload(
             source="sim",
             fuel=self.config.fuel,
@@ -285,6 +315,12 @@ class SimResult(BaseModel):
             peak_temp_k=self.final.get("peak_temp_k"),
             soot_yield_index=self.final.get("soot_volume_fraction"),
             stability=self.final.get("stability"),
+            burn_duration_s=burn_duration,
+            extinction=(
+                bool(self.final.get("quenched"))
+                if self.final.get("quenched") is not None
+                else None
+            ),
             profile_r=_downsample(self.history, "max_flame_radius_m", 24),
             profile_t=_downsample(self.history, "peak_temp_k", 24),
         )

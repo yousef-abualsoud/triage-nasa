@@ -30,7 +30,7 @@ def _api_key() -> str | None:
     return os.environ.get("NANOGPT_API_KEY")
 
 
-def _triage_prompt(gt: UnifiedPayload, sim: UnifiedPayload) -> str:
+def _triage_prompt(gt: UnifiedPayload | None, sim: UnifiedPayload) -> str:
     return (
         "You are a combustion telemetry triage engine. Compare the NASA PSI ground-truth "
         "run against the simulated run and classify. Respond ONLY with JSON matching: "
@@ -41,8 +41,8 @@ def _triage_prompt(gt: UnifiedPayload, sim: UnifiedPayload) -> str:
         '"radiant_heat_loss_critical": bool, '
         '"stability_score": 0-100, "delta_score": 0-100, "confidence_score": 0-1, '
         '"notes": str}\n'
-        f"NASA_GROUND_TRUTH: {gt.model_dump_json()}\n"
-        f"SIM_PREDICTION: {sim.model_dump_json()}"
+        f"NASA_GROUND_TRUTH: {gt.model_dump_json(exclude_none=True) if gt else 'N/A (no matching PSI run)'}\n"
+        f"SIM_PREDICTION: {sim.model_dump_json(exclude_none=True)}"
     )
 
 
@@ -65,24 +65,58 @@ def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
         morph = "spherical"
 
     profile = "NONE"
-    eid = (gt.experiment_id or "")
-    if isinstance(eid, str):
-        profile = "ACME" if "sflame" in eid.lower() or "coflow" in eid.lower() else (
-            "SOFIE" if "saffire" in eid.lower() else "NONE"
-        )
+    identity = ""
+    if gt is not None:
+        identity = " ".join(
+            str(part or "")
+            for part in (gt.experiment_id, gt.investigation, gt.accession)
+        ).lower()
+    if any(
+        token in identity
+        for token in ("acme", "sflame", "s-flame", "coflow", "psi-23", "psi-21", "psi-22", "psi-20", "psi-10")
+    ):
+        profile = "ACME"
+    elif any(token in identity for token in ("flex", "psi-69", "psi-68")):
+        profile = "FLEX"
 
-    t_gt = gt.peak_temp_k or 0.0
-    t_sim = sim.peak_temp_k or 0.0
-    delta = abs(t_gt - t_sim) / max(t_gt, 1.0) * 100.0 if t_gt else 50.0
-    r_gt = gt.max_radius_mm or 0.0
-    r_sim = sim.max_radius_mm or 0.0
-    radius_delta = abs(r_gt - r_sim) / max(r_gt, 1.0) * 100.0 if r_gt else 40.0
-    delta_score = round(min((delta + radius_delta) / 2.0, 100.0), 1)
+    # Prefer measured fields where both sides actually carry them. Real
+    # s-Flame tabular telemetry has no flame radius or calibrated temperature,
+    # so the score falls back to stability + extinction behaviour instead of
+    # inventing a comparison.
+    components: list[float] = []
+    if gt is not None:
+        if gt.peak_temp_k and sim.peak_temp_k:
+            components.append(
+                abs(gt.peak_temp_k - sim.peak_temp_k) / max(gt.peak_temp_k, 1.0) * 100.0
+            )
+        if gt.max_radius_mm and sim.max_radius_mm:
+            components.append(
+                abs(gt.max_radius_mm - sim.max_radius_mm) / max(gt.max_radius_mm, 1.0) * 100.0
+            )
+        if gt.stability is not None and sim.stability is not None:
+            components.append(abs(float(gt.stability) - float(sim.stability)))
+        if gt.extinction is not None and sim.extinction is not None:
+            components.append(0.0 if bool(gt.extinction) == bool(sim.extinction) else 100.0)
+        if gt.burn_duration_s and sim.burn_duration_s:
+            components.append(
+                min(
+                    abs(float(gt.burn_duration_s) - float(sim.burn_duration_s))
+                    / max(float(gt.burn_duration_s), 1.0)
+                    * 100.0,
+                    100.0,
+                )
+            )
+    delta_score = round(min(sum(components) / len(components), 100.0), 1) if components else 50.0
     stability = sim.stability if sim.stability is not None else 60.0
 
     soot_score = round(
         min(100.0, (sim.soot_yield_index or 0.0) * 100.0 / 0.05), 1
     )
+    identity_note = ""
+    if gt is not None and gt.test_point:
+        identity_note = f" NASA GT: {gt.investigation or 'PSI'} {gt.test_point}."
+    elif gt is None:
+        identity_note = " No matching PSI fuel/gravity class; comparison withheld."
     return JevVerdict(
         flame_morphology=morph,  # type: ignore[arg-type]
         buoyancy_driven_convection=buoyant,
@@ -94,13 +128,15 @@ def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
         confidence_score=0.55 if delta_score < 60 else 0.4,
         notes=(
             "Local heuristic fallback (no NanoGPT key configured); 1D spherical "
-            "solver, gravity is an effective radial term (see R2/R12)."
+            f"solver, gravity is an effective radial term (R2/R12).{identity_note}"
         )[:280],
     )
 
 
 async def triage_pair(
-    gt: UnifiedPayload, sim: UnifiedPayload, client: httpx.AsyncClient | None = None
+    gt: UnifiedPayload | None,
+    sim: UnifiedPayload,
+    client: httpx.AsyncClient | None = None,
 ) -> JevVerdict:
     """Triage one ground-truth/sim pair through Jev (or local fallback)."""
     key = _api_key()

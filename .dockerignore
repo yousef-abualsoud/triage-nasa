@@ -1,0 +1,32 @@
+# Version control / local agent state
+.git
+.zcode
+
+# Internal working notes (kept out of distributed artifacts)
+docs/
+
+# Raw NASA PSI cache (re-fetched by psi_repo.py; never shipped)
+data/psi_cache/
+
+# Per-machine user presets
+data/custom_fuels.json
+data/custom_species.json
+data/custom_reactions.json
+
+# Local frontend build artifacts and dependencies
+src/frontend/node_modules/
+src/frontend/dist/
+
+# Local native build / virtualenv artifacts
+build/
+.venv/
+venv/
+
+# Python caches
+**/__pycache__/
+*.pyc
+
+# Secrets and logs
+.env
+*.log
+.DS_Store

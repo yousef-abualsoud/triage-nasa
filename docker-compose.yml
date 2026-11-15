@@ -15,13 +15,13 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
     ports:
       - "8080:80"
-    volumes:
-      # Serve the built SPA; nginx default.conf proxies nothing — the
-      # browser connects to ws://host:8765 directly for the control loop.
-      - ./src/frontend/dist:/usr/share/nginx/html:ro
+    # The SPA is built inside the image; nginx serves it on 8080. The browser
+    # connects to ws://host:8765 directly for the control loop.
     depends_on:
       - backend
     restart: unless-stopped

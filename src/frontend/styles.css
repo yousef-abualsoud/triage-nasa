@@ -724,6 +724,14 @@ body {
   height: 6px;
 }
 
+.jev-exp {
+  margin: 2px 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+}
+
 .jev-empty {
   margin: 4px 0;
 }

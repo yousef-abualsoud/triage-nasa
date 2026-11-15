@@ -1,17 +1,23 @@
 """
-NASA PSI ingestion -> UnifiedPayload ground truth.
+PSI ground-truth entry point (legacy module name kept for imports).
 
-Primary path : anonymous boto3 listing/download from s3://nasa-psi (PSI combustion,
-ACME s-Flame / Coflow + Saffire telemetry). CSV/DAT/TXT only; .mp4/.tif skipped.
-Fallback path : deterministic synthetic telemetry in data/synthetic so the whole
-pipeline works offline (venue Wi-Fi drop, PSI restructure, rate limits).
+Real data path
+--------------
+``psi_repo.py`` talks to the public NASA PSI repository API and ships a curated
+ACME s-Flame (PSI-23) dataset in ``data/psi/sflame_runs.json``. This module
+loads that dataset when present.
+
+Offline fallback
+----------------
+If no curated dataset exists (fresh clone without network, or a stripped
+deployment), deterministic surrogate telemetry is generated so the dashboard
+and triage pipeline still work. Surrogates are labelled ``source="synthetic"``
+and must never be presented as NASA measurements.
 """
 
 from __future__ import annotations
 
 import asyncio
-import csv
-import io
 import json
 import math
 from pathlib import Path
@@ -21,154 +27,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from schema import UnifiedPayload  # noqa: E402
+from psi_repo import build_sflame_runs, load_curated_ground_truth  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-CACHE_DIR = REPO_ROOT / "data" / "psi_cache"
 SYNTHETIC_DIR = REPO_ROOT / "data" / "synthetic"
-
-PSI_BUCKET = "nasa-psi"
-# Gaseous combustion projects in PSI; anything else is out of scope.
-SCOPED_PROJECTS = ("ACME", "Saffire")
-IN_SCOPE_EXTS = (".csv", ".dat", ".txt")
-SKIP_EXTS = (".mp4", ".tif", ".tiff", ".hdf", ".h5", ".zip", ".mov", ".avi")
-
-# Column aliases: PSI files vary wildly between runs; never hardcode indexes.
-COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
-    "time": ("time", "t", "elapsed_time", "time_s", "time (s)"),
-    "flame_radius": (
-        "flame_radius", "radius", "flame_radius_mm", "radius_mm",
-        "r_flame", "flame front radius", "sflame_radius",
-    ),
-    "temperature": (
-        "temperature", "temp", "t_gas", "gas_temp", "temperature_k",
-        "flame_temperature", "tc_temperature", "max_temp", "peak_temp",
-    ),
-    "o2": ("o2", "oxygen", "o2_pct", "o2_percent", "o2_mole_fraction", "o2 (%)"),
-    "pressure": ("pressure", "p", "chamber_pressure", "pressure_bar", "pressure (bar)"),
-    "inlet_velocity": ("inlet_velocity", "u_in", "flow_velocity", "u_inlet", "coflow_velocity"),
-}
-
-
-def _find(columns: list[str], key: str) -> int | None:
-    """Case-insensitive, whitespace-tolerant alias lookup. Returns column index."""
-    lowered = [c.strip().lower() for c in columns]
-    for alias in COLUMN_ALIASES[key]:
-        if alias.lower() in lowered:
-            return lowered.index(alias.lower())
-    # Prefix match as a last resort (e.g. 'flame_radius_run3').
-    for alias in COLUMN_ALIASES[key]:
-        for i, col in enumerate(lowered):
-            if col.startswith(alias.lower()):
-                return i
-    return None
-
-
-def parse_psi_csv(raw: str) -> list[dict[str, Any]] | None:
-    """Best-effort parse of a PSI telemetry CSV/DAT into row dicts."""
-    lines = [ln for ln in raw.splitlines() if ln.strip()]
-    if not lines:
-        return None
-    # Find the header row: first line where most cells are non-numeric.
-    header_idx = 0
-    for i, ln in enumerate(lines[: min(10, len(lines))]):
-        cells = [c.strip() for c in ln.replace(";", ",").split(",")]
-        numeric = sum(
-            1
-            for c in cells
-            if c and (c.replace(".", "").replace("-", "").replace("e", "").isdigit())
-        )
-        if numeric < len(cells) / 2:
-            header_idx = i
-            break
-    header = [c.strip() for c in lines[header_idx].replace(";", ",").split(",")]
-    if len(header) < 2:
-        return None
-    rows: list[dict[str, Any]] = []
-    for ln in lines[header_idx + 1:]:
-        cells = [c.strip() for c in ln.replace(";", ",").split(",")]
-        if len(cells) != len(header):
-            continue
-        row: dict[str, Any] = {}
-        for name, cell in zip(header, cells):
-            try:
-                row[name] = float(cell)
-            except ValueError:
-                row[name] = cell
-        if any(isinstance(v, float) for v in row.values()):
-            rows.append(row)
-    return rows or None
-
-
-def rows_to_payload(
-    rows: list[dict[str, Any]],
-    fuel: str,
-    gravity_mode: str,
-    experiment_id: str,
-    inlet_velocity_ms: float = 0.0,
-) -> UnifiedPayload:
-    """Reduce raw telemetry rows to the compact UnifiedPayload shape."""
-    columns = list(rows[0].keys())
-    t_idx = _find(columns, "time")
-    r_idx = _find(columns, "flame_radius")
-    temp_idx = _find(columns, "temperature")
-    o2_idx = _find(columns, "o2")
-    p_idx = _find(columns, "pressure")
-    u_idx = _find(columns, "inlet_velocity")
-
-    def col(idx: int | None) -> list[float]:
-        if idx is None:
-            return []
-        vals = []
-        for row in rows:
-            v = row.get(columns[idx])
-            if isinstance(v, float) and math.isfinite(v):
-                vals.append(v)
-        return vals
-
-    times = col(t_idx)
-    temps = col(temp_idx)
-    radii = col(r_idx)
-    o2 = col(o2_idx)
-    pressures = col(p_idx)
-    u_in = col(u_idx)
-
-    peak_temp = max(temps) if temps else None
-    mean_o2 = sum(o2) / len(o2) if o2 else None
-    mean_p = (sum(pressures) / len(pressures)) / 1e5 if pressures else None
-
-    # Quench time: first time after which no reading exceeds ignition+200 K.
-    quench = None
-    if times and temps and peak_temp:
-        for t, temp in zip(times, temps):
-            if temp < (temps[0] + 50.0):
-                quench = t
-                break
-
-    def downsample(vals: list[float], n: int = 24) -> list[float]:
-        if len(vals) <= n:
-            return [round(v, 3) for v in vals]
-        step = (len(vals) - 1) / (n - 1)
-        return [round(vals[int(i * step)], 3) for i in range(n)]
-
-    return UnifiedPayload(
-        source="psi",
-        fuel=fuel,
-        oxygen_pct=mean_o2 if mean_o2 is not None else 21.0,
-        ambient_pressure_bar=mean_p if mean_p is not None else 1.0,
-        gravity_mode=gravity_mode,  # type: ignore[arg-type]
-        inlet_velocity_ms=(sum(u_in) / len(u_in)) if u_in else inlet_velocity_ms,
-        max_radius_mm=(max(radii) if radii else None),
-        quench_time_s=quench,
-        peak_temp_k=peak_temp,
-        soot_yield_index=None,
-        stability=None,
-        profile_r=downsample(radii),
-        profile_t=downsample(temps),
-    )
 
 
 # ---------------------------------------------------------------------------
-# Synthetic ground truth (offline fallback, ALSO used for local demo data)
+# Synthetic ground truth (explicit offline fallback)
 # ---------------------------------------------------------------------------
 
 def generate_synthetic_runs() -> list[dict[str, Any]]:
@@ -225,9 +91,9 @@ def generate_synthetic_runs() -> list[dict[str, Any]]:
                 radii = [r if k < q_idx else 0.0 for k, r in enumerate(radii)]
             runs.append(
                 {
-                    "experiment_id": f"{exp_name}_{i:02d}",
+                    "experiment_id": f"SURROGATE_{exp_name}_{i:02d}",
                     "payload": UnifiedPayload(
-                        source="psi",
+                        source="synthetic",
                         fuel=fuel,
                         oxygen_pct=round(o2, 1),
                         ambient_pressure_bar=round(p_bar, 2),
@@ -242,6 +108,8 @@ def generate_synthetic_runs() -> list[dict[str, Any]]:
                             3,
                         ),
                         stability=None,
+                        burn_duration_s=t_end,
+                        extinction=quenched,
                         profile_r=radii[-24:],
                         profile_t=temps[-24:],
                     ).model_dump(),
@@ -262,102 +130,65 @@ class _SeededRng:
 
 
 # ---------------------------------------------------------------------------
-# S3 access
+# Public API
 # ---------------------------------------------------------------------------
 
-def _anonymous_s3():
-    from botocore import UNSIGNED
-    from botocore.config import Config
-    import boto3
-
-    return boto3.client(
-        "s3",
-        config=Config(signature_version=UNSIGN, retries={"max_attempts": 3}),
-    )
-
-
-async def list_in_scope_keys(prefix: str = "Combustion/") -> list[str]:
-    """Anonymous list of in-scope lightweight telemetry keys under the prefix."""
-    def _list() -> list[str]:
-        s3 = _anonymous_s3()
-        keys: list[str] = []
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=PSI_BUCKET, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if not key.lower().endswith(IN_SCOPE_EXTS):
-                    continue
-                if key.lower().endswith(SKIP_EXTS):
-                    continue
-                if not any(proj.lower() in key for proj in SCOPED_PROJECTS):
-                    continue
-                if "simulation" in key.lower() or "pi_run" in key.lower():
-                    continue  # legacy PI simulations excluded; flight data is ground truth
-                if obj.get("Size", 0) > 20 * 1024 * 1024:
-                    continue  # 20 MB telemetry ceiling
-                keys.append(key)
-        return keys
-
-    return await asyncio.to_thread(_list)
-
-
-async def download_key(key: str) -> str:
-    """Download one telemetry key into the cache; returns local text."""
-    cache_path = CACHE_DIR / key.replace("/", "__")
-    if cache_path.exists():
-        return cache_path.read_text(encoding="utf-8", errors="replace")
-
-    def _download() -> str:
-        s3 = _anonymous_s3()
-        body = s3.get_object(Bucket=PSI_BUCKET, Key=key)["Body"].read()
-        text = body.decode("utf-8", errors="replace")
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(text, encoding="utf-8")
-        return text
-
-    return await asyncio.to_thread(_download)
-
-
-async def ingest_psi(limit: int = 60) -> list[dict[str, Any]]:
-    """Pull in-scope PSI telemetry and reduce to payload dicts."""
-    runs: list[dict[str, Any]] = []
-    try:
-        keys = await list_in_scope_keys()
-    except Exception as exc:  # noqa: BLE001 - network/S3 failures fall back below
-        print(f"[s3_ingest] PSI listing failed ({exc}); using synthetic fallback")
-        return []
-    for key in keys[:limit]:
+def _synthetic_ground_truth() -> list[dict[str, Any]]:
+    SYNTHETIC_DIR.mkdir(parents=True, exist_ok=True)
+    out = SYNTHETIC_DIR / "psi_runs.json"
+    if out.exists():
         try:
-            raw = await download_key(key)
-            rows = parse_psi_csv(raw)
-            if not rows:
-                continue
-            fuel = "CH4"  # TODO: PSI metadata join for fuel/grav per experiment
-            grav = "zero_g"
-            payload = rows_to_payload(rows, fuel, grav, experiment_id=key)
-            runs.append(
-                {
-                    "experiment_id": key,
-                    "payload": payload.model_dump(),
-                }
-            )
-        except Exception:  # noqa: BLE001
-            continue
-    return runs
+            cached = json.loads(out.read_text(encoding="utf-8"))
+            if cached and all(
+                entry.get("payload", {}).get("source") == "synthetic"
+                for entry in cached
+            ):
+                return cached
+        except (OSError, json.JSONDecodeError):
+            pass
+    data = generate_synthetic_runs()
+    out.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    return data
+
+
+_GROUND_TRUTH: list[dict[str, Any]] | None = None
 
 
 def load_ground_truth() -> list[dict[str, Any]]:
-    """Load cached/synthetic ground truth from disk (never network)."""
-    SYNTHETIC_DIR.mkdir(parents=True, exist_ok=True)
-    out = SYNTHETIC_DIR / "psi_runs.json"
-    if not out.exists():
-        out.write_text(json.dumps(generate_synthetic_runs(), indent=1), encoding="utf-8")
-    return json.loads(out.read_text(encoding="utf-8"))
+    """Real PSI s-Flame runs first, plus clearly-labelled surrogates.
+
+    Surrogates fill conditions the flight archive does not cover (C3H8,
+    Earth/Mars gravity) and keep the dashboard usable offline. Callers must
+    prefer ``payload.source == "psi"``; the triage layer does.
+    """
+    global _GROUND_TRUTH
+    if _GROUND_TRUTH is None:
+        _GROUND_TRUTH = load_curated_ground_truth() + _synthetic_ground_truth()
+    return _GROUND_TRUTH
+
+
+async def ingest_psi(
+    limit: int = 60, *, per_day: int = 2, candidates_per_day: int = 6
+) -> list[dict[str, Any]]:
+    """Refresh the curated ACME s-Flame dataset from the PSI API.
+
+    This is a build-time operation (network + ~100 MB of cached telemetry);
+    the server itself only calls :func:`load_ground_truth`.
+    """
+    payload = await asyncio.to_thread(
+        build_sflame_runs,
+        per_day=per_day,
+        candidates_per_day=candidates_per_day,
+    )
+    return list(payload.get("runs") or [])[:limit]
 
 
 if __name__ == "__main__":
-    # Regenerate the synthetic set and print a summary.
     data = load_ground_truth()
+    real = sum(1 for d in data if d.get("payload", {}).get("source") == "psi")
     fuels = {d["payload"]["fuel"] for d in data}
-    quench = sum(1 for d in data if d["payload"]["quench_time_s"])
-    print(f"{len(data)} synthetic runs; fuels={sorted(fuels)}; quenched={quench}")
+    quench = sum(1 for d in data if d["payload"].get("quench_time_s"))
+    print(
+        f"{len(data)} runs ({real} real PSI, {len(data) - real} synthetic); "
+        f"fuels={sorted(fuels)}; quenched={quench}"
+    )

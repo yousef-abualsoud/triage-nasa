@@ -138,18 +138,30 @@ async def _handle_sweep(
     return {"kind": "sweep_result", "results": results}
 
 
-async def _nearest_ground_truth(sim: UnifiedPayload) -> UnifiedPayload:
-    """Find the closest PSI ground-truth run (fuel + gravity + coarse params)."""
+async def _nearest_ground_truth(sim: UnifiedPayload) -> UnifiedPayload | None:
+    """Nearest PSI run for the same fuel/gravity class.
+
+    Real flight data (``source="psi"``) always wins over a surrogate. Returns
+    ``None`` when no candidate exists, so the UI never shows a fabricated
+    100%-agreement comparison against a copy of the simulation itself.
+    """
     gts = load_ground_truth()
-    best: tuple[float, UnifiedPayload] | None = None
+    microgravity = {"zero_g", "iss_micro_g"}
+    best_real: tuple[float, UnifiedPayload] | None = None
+    best_synth: tuple[float, UnifiedPayload] | None = None
     for entry in gts:
         p = dict(entry["payload"])
         if p.get("fuel") != sim.fuel:
             continue
-        if p.get("gravity_mode") != sim.gravity_mode:
+        gt_gravity = p.get("gravity_mode")
+        # s-Flame is an ISS microgravity experiment. Treat zero_g and
+        # iss_micro_g as the same class so the default zero-G config can use
+        # the real flight data instead of falling back to a surrogate.
+        if gt_gravity != sim.gravity_mode and not (
+            {gt_gravity, sim.gravity_mode} <= microgravity
+        ):
             continue
-        # PSI CSV/JSON entries may carry the experiment id at the envelope level;
-        # carry it into the compact payload so tier-1 profile matching can use it.
+        # The curated envelope carries the accession/test-point id.
         if entry.get("experiment_id") and not p.get("experiment_id"):
             p["experiment_id"] = entry["experiment_id"]
         dist = (
@@ -157,15 +169,21 @@ async def _nearest_ground_truth(sim: UnifiedPayload) -> UnifiedPayload:
             + abs(float(p.get("ambient_pressure_bar", 1.0)) - sim.ambient_pressure_bar) / 2.0
             + abs(float(p.get("inlet_velocity_ms", 0.0)) - sim.inlet_velocity_ms) / 2.0
         )
-        if best is None or dist < best[0]:
-            best = (dist, UnifiedPayload.model_validate(p))
-    if best is None:
-        # Synthetic fallback payload keeps triage comparable even without match.
-        return UnifiedPayload(
-            source="psi", fuel=sim.fuel, oxygen_pct=sim.oxygen_pct,
-            ambient_pressure_bar=sim.ambient_pressure_bar, gravity_mode=sim.gravity_mode,
-        )
-    return best[1]
+        # Prefer a ground-truth run with the same outcome (stable vs quenched)
+        # when conditions are otherwise close — a stable simulation should not
+        # be scored against an extinguished test point just because it is nearer
+        # in oxygen/pressure.
+        if p.get("extinction") is not None and sim.extinction is not None:
+            if bool(p["extinction"]) != bool(sim.extinction):
+                dist += 0.15
+        candidate = (dist, UnifiedPayload.model_validate(p))
+        if p.get("source") == "psi":
+            if best_real is None or dist < best_real[0]:
+                best_real = candidate
+        elif best_synth is None or dist < best_synth[0]:
+            best_synth = candidate
+    best = best_real or best_synth
+    return best[1] if best else None
 
 
 async def _handle_fuel_list() -> dict[str, Any]:
@@ -206,7 +224,8 @@ async def _handle_triage(run_id: str) -> dict[str, Any]:
         "verdict": verdict.model_dump(),
         # The nearest PSI ground truth ships with the verdict so the UI can
         # render field-level agreement percentages without a second round trip.
-        "ground_truth": gt.model_dump(),
+        # None means no matching fuel/gravity class exists in the archive.
+        "ground_truth": gt.model_dump() if gt else None,
     }
 
 

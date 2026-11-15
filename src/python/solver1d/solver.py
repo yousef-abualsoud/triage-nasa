@@ -1,6 +1,6 @@
-"""1D spherical reference solver: nine-stage time loop from the architecture document.
+"""1D spherical reference solver: nine-stage time loop from the architecture spec.
 
-This implementation follows Combustion_Solver_Architecture_English.docx literally:
+This implementation follows the solver specification literally:
 
   §5.1  u = mdot / (4 pi r^2 rho)
   §5.2  rho = p0 W_mix / (Ru T)

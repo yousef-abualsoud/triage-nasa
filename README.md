@@ -3,9 +3,12 @@
 **2026 NASA Space Apps Challenge — "Flame in Free-Fall"**
 
 An interactive, AI-powered Digital Twin dashboard that summarizes, ranks, and
-interprets historical NASA microgravity combustion experiments (ACME s-Flame /
-Coflow, Saffire) alongside a custom **1D spherical finite-volume combustion
-solver** — delivering fire-safety insights for Moon and Mars missions.
+interprets historical NASA microgravity combustion experiments (ACME s-Flame,
+ACME Coflow, Saffire, FLEX) alongside a custom **1D spherical finite-volume
+combustion solver** — delivering fire-safety insights for Moon and Mars
+missions. Ground truth comes from the live NASA PSI repository API: the full
+Combustion Science catalogue (24 investigations) plus per-test-point ACME
+s-Flame telemetry reduced into `data/psi/`.
 
 The solver implements the five coupled equations in the architecture
 specification: continuity, equation of state, momentum consistency, species
@@ -46,7 +49,36 @@ cmake --build build -j
 PYTHONPATH=src/python .venv/bin/python -m pytest -q tests/
 ```
 
-Or one command with Docker: `docker compose up --build` (serves everything).
+Or one command with Docker: `docker compose up --build`. This builds the
+React SPA inside `Dockerfile.frontend`, serves it from nginx on
+`http://localhost:8080`, and runs the Python/C++ backend on
+`ws://localhost:8765`. No local `npm run build` is required. The `./data`
+directory is mounted into the backend so curated PSI ground truth and custom
+presets persist.
+
+Refresh or inspect the PSI data (network, ~100 MB raw cache; reduced output is
+small and shipped):
+
+```bash
+.venv/bin/python src/python/psi_repo.py status   # catalogue + s-Flame coverage
+.venv/bin/python src/python/psi_repo.py all      # re-fetch catalogue + telemetry
+```
+
+## Data sources: what we use and why
+
+| Resource | Use in T.R.I.A.G.E. | Status |
+|----------|---------------------|--------|
+| **PSI Data Repository — Combustion Science** | Primary empirical ground truth. Public API gives 24 investigations; PSI-23 (ACME s-Flame) has 286 test points with conditions and raw telemetry, reduced to 20 representative runs (CH4/C2H4/H2; 21%/30% O2; N2/He dilution; stable + extinguished). | **Essential — wired** |
+| **A Researcher's Guide to ISS Combustion Science (2015)** | Physics grounding for the Tier-2 diagnostic (diffusion-limited flames, radiative quenching, soot, ventilation effects). | **Used** (prompt grounding) |
+| **Apollo 1 / Apollo 13 / Mir 1997** | Fire-safety incident context for the Tier-2 recommendations (O2 enrichment, pressure transients, ventilation-driven spread). | **Used** (prompt grounding) |
+| **NASA Combustion Science web pages** | Narrative background; PSI records already carry objectives, approach, hardware, and dates. | Optional |
+| **ScienceCasts: Power of Studying Combustion on the ISS** | Public explainer video; no telemetry. | Not needed |
+| **Fireman's Air Tanks / Fire Detector / Fire Attire spinoffs** | NASA technology-spinoff stories; unrelated to microgravity flame physics or the solver. | Not needed |
+
+The repository ships a reduced, auditable s-Flame set in `data/psi/`
+(`catalog.json`, `sflame_runs.json`); raw CSVs stay in the gitignored
+`data/psi_cache/`. Fields that the tabular telemetry does not contain — flame
+radius and calibrated flame temperature — are left **null**, never synthesized.
 
 ## The walkthrough (three tabs)
 
@@ -74,10 +106,12 @@ mesh in the same accent color as the sliders):
    **3D volumetric view** (three.js raymarched emission-absorption shader; drag
    to orbit, wheel to zoom) with a flat 2D heatmap toggle, time scrubber and
    run stats. Directly beneath it, the small **Jev
-   Experiment Comparison** panel scores the run against the nearest NASA
-   ground truth with field-level agreement percentages (peak T, flame radius,
-   O2, pressure) and a dense tier-1 verdict grid — all visible without
-   scrolling. The center and right of the tab belong to the big **Tier 2
+   Experiment Comparison** panel scores the run against the nearest real PSI
+   flight test point (e.g. *ACME s-Flame · 19304A2 · 45% CH4 with N2*) with
+   field-level agreement for oxygen, pressure, burn duration, and — when the
+   source actually measured them — peak temperature and flame radius. It also
+   shows the measured NASA outcome (stable vs extinguished, PMT peak) and a
+   dense tier-1 verdict grid — all visible without scrolling. The center and right of the tab belong to the big **Tier 2
    report** panel (Azure AI Foundry, gated to top-1% anomalies or an explicit
    user click), which produces a Markdown fire-safety diagnostic grounded in
    the 2015 *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
@@ -98,8 +132,9 @@ mesh in the same accent color as the sliders):
 src/
 ├── cpp/          # 1D spherical finite-volume solver (thomas.cpp, solver_core.cpp,
 │                 #   bindings.cpp) → triage_core.so via pybind11
-├── python/       # WebSocket server, NASA PSI S3 ingest, two-tier AI pipeline,
-│                 #   solver1d/ NumPy reference (grid/properties/chemistry/transport)
+├── python/       # WebSocket server, NASA PSI repository client + s-Flame
+│                 #   ground-truth builder, two-tier AI pipeline, solver1d/
+│                 #   NumPy reference (grid/properties/chemistry/transport)
 ├── frontend/    # React + D3 digital-twin dashboard (Vite)
 └── shared/      # species_db.json + reactions.json + constants.json
 ```
@@ -140,9 +175,15 @@ comparison payload but is not used by the spherical solver (R4).
 
 ## Compliance & data sources
 
-- **NASA PSI Data Repository** (Combustion): anonymous S3 ingest, lightweight
-  telemetry only (`.csv`/`.dat`/`.txt`); multi-TB video archives skipped.
-  Scoped to gaseous-fuel experiments (ACME s-Flame/Coflow, Saffire airflow).
+- **NASA PSI Data Repository** (Combustion): public repository API
+  (`psi.nasa.gov/geode-py/ws/repo`). The catalogue covers all 24 Combustion
+  Science investigations (ACME, Saffire, FLEX, BASS, SLICE, SPICE, SAME, …).
+  Per-test-point numeric ground truth comes from ACME s-Flame (PSI-23, 286 test
+  points, 18 test days): conditions from the experimental table, ignition and
+  extinction from TP logs, chamber pressure from PTA3 per the ACME non-imaging
+  data description, and ion current / PMT / radiometer peaks from the raw CSVs.
+  Multi-TB video archives are intentionally not downloaded; flame radius and
+  calibrated flame temperature are therefore left null rather than estimated.
 - **Species/reaction data**: NASA-7 thermochemistry and transport reference
   values are curated from US public sources (NASA Glenn, Burcat, NIST). C3H8
   currently uses a constant `cp`; transport uses power-law correlations rather
@@ -174,7 +215,9 @@ pipeline, React/D3 dashboard, parameter sweeps, custom fuels, Jev comparison,
 and Tier-2 report are functional end-to-end against it. `pytest` covers
 thermochemistry, grid/transport, solver behaviour, and C++/Python parity.
 
-Remaining release work (see `PLAN.md`): PSI metadata join for real experiment
-IDs, Docker end-to-end verification, demo video/pitch deck, and the revision
-items in the internal revision tracker (which are intentionally deferred, not
-silently fixed).
+The PSI metadata join is complete: the 24-investigation catalogue and the
+per-test-point s-Flame ground truth are generated from the public repository
+API and shipped under `data/psi/`. Remaining release work (see `PLAN.md`):
+Docker end-to-end verification, demo video/pitch deck, custom
+species/reaction editors, and the revision items in the internal revision
+tracker (intentionally deferred, not silently fixed).

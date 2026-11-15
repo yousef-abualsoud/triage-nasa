@@ -1,4 +1,5 @@
-# Multi-stage build: C++ solver → Python backend → frontend bundle.
+# Multi-stage build: C++ solver → Python backend.
+# The SPA is built separately in Dockerfile.frontend.
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
@@ -20,7 +21,7 @@ RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 # ---------- Stage 2: Python backend deps ----------
 FROM base AS backend
 RUN pip install --no-cache-dir \
-    numpy pydantic boto3 botocore websockets httpx openai
+    numpy pydantic websockets httpx openai
 
 COPY --from=cpp-builder /usr/local/lib/triage_core*.so /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib
@@ -30,16 +31,8 @@ COPY src/shared/ /app/src/shared/
 COPY src/python/ /app/src/python/
 WORKDIR /app
 
-# ---------- Stage 3: Frontend bundle ----------
-FROM node:22-slim AS frontend-builder
-WORKDIR /web
-COPY src/frontend/package.json src/frontend/package-lock.json* ./
-RUN npm install --no-audit --no-fund
-COPY src/frontend/ ./
-RUN npm run build
-
-FROM backend
-COPY --from=frontend-builder /web/dist/ /app/src/frontend/dist/
+# The SPA is built and served by Dockerfile.frontend (compose `frontend`
+# service); this image only runs the WebSocket backend and the C++ solver.
 
 EXPOSE 8765
 CMD ["python", "src/python/server.py"]
