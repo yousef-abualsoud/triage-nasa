@@ -87,32 +87,35 @@ so curated PSI ground truth and custom presets persist. No local
 
 ### Option 2 — Local development
 
-Run all of these commands from the repository root, the folder containing
-`requirements.txt`, `CMakeLists.txt`, and `src/`. The commands assume a Unix
-shell. On Windows, use WSL 2 for the local path; the C++ build flags target
-GCC/Clang.
+Clone the repository, then run the setup commands from its root. The commands
+assume a Unix shell. On Windows, use WSL 2 for the local path; the C++ build
+flags target GCC/Clang.
 
 ```bash
-# 0. Preflight: confirm the repository root
+# 0. Clone and enter the repository
+git clone https://github.com/yousef-abualsoud/triage-nasa.git
+cd triage-nasa
+
+# 1. Preflight: confirm the repository root
 pwd && ls requirements.txt CMakeLists.txt
 
-# 1. Python environment and dependencies (Python 3.12+)
+# 2. Python environment and dependencies (Python 3.12+)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-# 2. Optional C++ solver (otherwise the NumPy reference is used)
+# 3. Optional C++ solver (otherwise the NumPy reference is used)
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -Dpybind11_DIR="$(.venv/bin/python -m pybind11 --cmakedir)"
 cmake --build build -j
 
-# 3. Backend — terminal 1
+# 4. Backend — terminal 1
 .venv/bin/python src/python/server.py          # ws://0.0.0.0:8765
 
-# 4. Frontend — terminal 2 (Node 22+)
+# 5. Frontend — terminal 2 (Node 22+)
 cd src/frontend
 npm ci
 npm run dev                                    # http://localhost:5173
 
-# 5. Tests — new terminal, from the repository root
+# 6. Tests — new terminal, from the repository root
 PYTHONPATH=src/python .venv/bin/python -m pytest -q tests/
 ```
 
