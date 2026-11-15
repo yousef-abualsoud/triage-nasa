@@ -290,9 +290,8 @@ comparison payload but is not used by the spherical solver (R4).
   constant `cp`; transport uses power-law correlations rather than full
   Chapman-Enskog (R8). The source document's open physical/mathematical issues
   are implemented as written and tracked in the internal revision tracker.
-- **Wolf Amendment**: zero calls to any Chinese API endpoints; all external
-  inference routes through US-hosted infrastructure (NanoGPT, Azure US
-  regions) or local fallbacks.
+- **Wolf Amendment**: All external inference routes through US-hosted aggregators
+- (NanoGPT, Azure)
 - **Single-step Arrhenius kinetics** are a reduced approximation — documented
   in-app and here. A predictive simulator would use fuel-specific mechanisms.
   The reaction-rate constant is not yet calibrated to the preset laminar flame
