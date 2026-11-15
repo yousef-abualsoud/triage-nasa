@@ -4,11 +4,11 @@
 
 An interactive, AI-powered Digital Twin dashboard built around a custom **1D
 spherical finite-volume combustion solver**. It compares each run with NASA's
-ACME s-Flame microgravity experiments and surfaces the broader 24-investigation
-PSI combustion catalogue (ACME, Saffire, FLEX, …), then turns that comparison
-into fire-safety guidance for Moon and Mars missions. Ground truth is sourced
-from the live NASA PSI repository API and shipped as a reduced, auditable
-dataset in `data/psi/`.
+ACME s-Flame microgravity experiments and turns that comparison into
+fire-safety guidance for Moon and Mars missions. Ground truth is sourced from
+the live NASA PSI repository API and shipped as a reduced, auditable dataset in
+`data/psi/`; the package also includes the full 24-investigation Combustion
+Science catalogue for reference.
 
 The solver implements five coupled equations — continuity, equation of state,
 momentum consistency, species transport (with the correction velocity), and
@@ -148,8 +148,10 @@ shipped, while raw CSVs stay in the gitignored cache):
 
 The repository ships a reduced, auditable s-Flame set in `data/psi/`
 (`catalog.json`, `sflame_runs.json`); raw CSVs stay in the gitignored
-`data/psi_cache/`. Fields that the tabular telemetry does not contain — flame
-radius and calibrated flame temperature — are left **null**, never synthesized.
+`data/psi_cache/`. For real PSI records, fields that the tabular telemetry does
+not contain — flame radius and calibrated flame temperature — are left
+**null**, never estimated. Offline surrogate fallback rows are explicitly
+labelled `source="synthetic"` and are never presented as NASA measurements.
 
 ## The walkthrough (three tabs)
 
@@ -196,11 +198,12 @@ mesh in the same accent color as the sliders):
    While a report is generating, an indeterminate progress bar shows elapsed
    seconds (triage + synthesis typically take 20–40 s).
 
-3. **Tab 3 · More Graphs.** A responsive diagnostics dashboard: burn curves vs
-   NASA PSI flight telemetry, soot index & mean temperature, fuel burned
-   fraction, the iteration ΔT graph, the angle-averaged radial temperature
-   profile of the current frame, the solver's **radial T/q̇** and **species**
-   profiles, and a **T(r,t)** heatmap from the saved radial snapshots, plus
+3. **Tab 3 · More Graphs.** A responsive diagnostics dashboard: burn curves
+   (with a NASA PSI overlay when the matched record includes a comparable
+   profile), soot index & mean temperature, fuel burned fraction, the iteration
+   ΔT graph, the angle-averaged radial temperature profile of the current frame,
+   the solver's **radial T/q̇** and **species** profiles, and a **T(r,t)**
+   heatmap from the saved radial snapshots, plus
    rule-based **suggestions** read off the run's own numbers (including honest
    solver diagnostics such as mass-budget drift, which is tracked in the
    internal revision tracker). Charts measure their container and render at CSS
@@ -281,7 +284,7 @@ comparison payload but is not used by the spherical solver (R4).
   calibrated flame temperature are therefore left null rather than estimated.
 - **Species/reaction data**: The NASA-7 thermodynamic coefficients in
   `src/shared/species_db.json` match
-  [GRI-Mech 3.0](http://combustion.berkeley.edu/gri-mech/version30/text30.html).
+  [GRI-Mech 3.0](https://github.com/Cantera/cantera/blob/main/data/gri30.yaml).
   Fuel-level transport, kinetic, and flame-speed presets are reduced
   engineering values for the global single-step model. C3H8 currently uses a
   constant `cp`; transport uses power-law correlations rather than full
@@ -342,4 +345,4 @@ API and shipped under `data/psi/`. The local venv/Vite path is verified
 end-to-end, Docker packaging is included for one-command deployment, and the
 core demo runs without external AI keys because both tiers fall back
 deterministically. Optional extensions and the internal revision items are
-tracked separately in `PLAN.md`.
+tracked in the internal project plan (not distributed).
