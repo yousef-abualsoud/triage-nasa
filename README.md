@@ -114,19 +114,28 @@ mesh in the same accent color as the sliders):
    runner-up, real-versus-surrogate pool, and an explicit no-match state. It
    also shows the measured NASA outcome (stable vs extinguished, PMT peak) and a
    dense tier-1 verdict grid — all visible without scrolling. The center and right of the tab belong to the big **Tier 2
-   report** panel (Azure AI Foundry, gated to top-1% anomalies or an explicit
-   user click), which produces a Markdown fire-safety diagnostic grounded in
-   the 2015 *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
+   report** panel (**DeepSeek v4.1 Flash** on NanoGPT, with an optional
+   Azure AI Foundry fallback; gated to top-1% anomalies or an explicit user
+   click), which produces a Markdown fire-safety diagnostic grounded in the
+   2015 *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
    Apollo 13 / Mir 1997 incident history, with Moon/Mars ECLSS
-   recommendations.
+   recommendations. The panel chip names the engine that actually answered;
+   a failed or unconfigured call is labeled `local fallback` with the reason.
+   While a report is generating, an indeterminate progress bar shows elapsed
+   seconds (triage + synthesis typically take 10–30 s).
 
-3. **Tab 3 · More Graphs.** Burn curves vs NASA PSI flight telemetry, soot
-   index & mean temperature, fuel burned fraction, buoyancy kinetic energy,
-   the angle-averaged radial temperature profile of the current frame, the
-   solver's **radial T/q̇** and **species** profiles, a **T(r,t)** heatmap from
-   the saved radial snapshots, and rule-based **suggestions** read off the
-   run's own numbers (including honest solver diagnostics such as mass-budget
-   drift, which is tracked in the internal revision tracker).
+3. **Tab 3 · More Graphs.** A responsive diagnostics dashboard: burn curves vs
+   NASA PSI flight telemetry, soot index & mean temperature, fuel burned
+   fraction, buoyancy kinetic energy, the angle-averaged radial temperature
+   profile of the current frame, the solver's **radial T/q̇** and **species**
+   profiles, and a **T(r,t)** heatmap from the saved radial snapshots, plus
+   rule-based **suggestions** read off the run's own numbers (including honest
+   solver diagnostics such as mass-budget drift, which is tracked in the
+   internal revision tracker). Charts measure their container and render at CSS
+   pixel size, axis titles live in dedicated gutters, and every x axis starts
+   at 0: time series begin at t = 0 / iteration 0 (the solvers emit the
+   pre-run state as the first sample), and radial curves hold the innermost
+   solver value out to r = 0 with the actual `r_min` boundary marked.
 
 ## Architecture
 
@@ -207,16 +216,24 @@ container variables take precedence. Docker Compose also reads `.env` for
 substitution and forwards the keys defined in `docker-compose.yml`.
 
 - `NANOGPT_API_KEY` — Tier 1 triage (`typesafe/jev-1.14`, native
-  Decisions API). Jev is a decision model, so the backend asks typed
-  `choice`/`score`/`noul` questions and maps the answers onto the verdict
-  schema. Without a key — or when the account has paid/decision models
+  Decisions API) and Tier 2 synthesis. Jev is a decision model, so the backend
+  asks typed `choice`/`score`/`noul` questions and maps the answers onto the
+  verdict schema. Without a key — or when the account has paid/decision models
   disabled — the verdict is the deterministic local heuristic and the panel
   shows `local` plus the actual fallback reason.
 - `JEV_MODEL` — decision model ID (default `typesafe/jev-1.14`).
 - `JEV_CONCURRENCY` — max concurrent triage calls in a parameter sweep
   (default 12).
-- `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` / deployment — Tier 2
-  synthesis (gated; trial TPM quota protected)
+- `TIER2_MODEL` — Tier 2 chat model (default
+  `deepseek/deepseek-v4.1-flash-1017:thinking`). It is served through
+  NanoGPT's US-hosted OpenAI-compatible endpoint and reuses
+  `NANOGPT_API_KEY`.
+- `TIER2_MAX_TOKENS` / `TIER2_TIMEOUT_S` — generation cap and request timeout
+  (defaults `8000` / `180`; the thinking model spends part of the cap on
+  reasoning tokens).
+- `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` / deployment — optional
+  Tier 2 fallback, used only if NanoGPT is unset or the DeepSeek call fails
+  (gated; trial TPM quota protected).
 - All optional: every AI path has a deterministic local fallback so the demo
   never depends on network availability.
 
@@ -225,7 +242,7 @@ substitution and forwards the keys defined in `docker-compose.yml`.
 The 1D spherical solver now exists in both forms — the NumPy reference
 (`src/python/solver1d/`) and the pybind11 C++ module (`src/cpp/`, built into
 `build/triage_core*.so`). The WebSocket backend, S3 ingest, two-tier AI
-pipeline (Jev/Azure when configured, explicit local fallback otherwise),
+pipeline (Jev/DeepSeek when configured, explicit local fallbacks otherwise),
 React/D3 dashboard, parameter sweeps, custom fuels, Jev comparison,
 and Tier-2 report are functional end-to-end against it. `pytest` covers
 thermochemistry, grid/transport, solver behaviour, C++/Python parity, and the

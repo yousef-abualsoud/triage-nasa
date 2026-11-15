@@ -59,13 +59,173 @@ body {
   top: 64px;
   z-index: 40;
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 12px;
   padding: 10px 2px;
   margin-bottom: 6px;
   background: rgba(11, 13, 20, 0.88);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
+}
+
+.tab-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* A4 report export: intentionally the last, right-aligned item on the strip. */
+.export-shell {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.export-btn {
+  border: 1px solid var(--accent);
+  background: rgba(255, 112, 67, 0.13);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease,
+    opacity 120ms ease;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: rgba(255, 112, 67, 0.22);
+}
+
+.export-btn:disabled {
+  border-color: var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-btn.is-done {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: rgba(102, 187, 106, 0.12);
+}
+
+.export-error {
+  margin: 0;
+  max-width: 340px;
+  color: #ffb3b3;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+/* Off-screen dark-theme render used only while exporting a PDF. It must stay
+   in layout (not display:none) so ResizeObserver gives charts their real
+   width and computed styles can be inlined into the rasterised SVGs. */
+.report-render-host {
+  position: fixed;
+  left: -12000px;
+  top: 0;
+  z-index: -1;
+  width: 1020px;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.report-render-host .graphs-dashboard {
+  gap: 14px;
+}
+
+.report-render-host .graphs-hero,
+.report-render-host .graphs-row {
+  display: block;
+}
+
+.report-render-host .graphs-hero > .panel,
+.report-render-host .graphs-row > .panel {
+  margin-bottom: 14px;
+}
+
+.report-render-host .panel {
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.report-render-host .panel h2,
+.report-render-host .graphs-heading h2 {
+  color: var(--text);
+}
+
+.report-render-host .muted,
+.report-render-host .graphs-heading p {
+  color: var(--muted);
+}
+
+.report-render-host .graph-kpi {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+
+.report-render-host .graph-kpi b {
+  color: var(--text);
+}
+
+.report-render-host .chart-svg .axis text,
+.report-render-host .chart-svg .axis-title,
+.report-render-host .chart-svg .axis-label,
+.report-render-host .chart-svg .radius-axis-label {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.report-render-host .chart-svg .axis line,
+.report-render-host .chart-svg .axis path {
+  stroke: #38435e;
+}
+
+.report-render-host .chart-svg .axis .domain {
+  stroke: #44506d;
+}
+
+.report-render-host .chart-svg .axis-y-right text {
+  fill: #9aa6c2;
+}
+
+.report-render-host .chart-svg .grid line {
+  stroke: #2a3247;
+  stroke-opacity: 0.55;
+}
+
+.report-render-host .chart-svg .chart-boundary {
+  stroke: #5b6787;
+}
+
+.report-render-host .suggestion-list li {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+@media (max-width: 760px) {
+  .tab-nav {
+    flex-wrap: wrap;
+  }
+
+  .export-shell {
+    margin-left: 0;
+  }
 }
 
 .tab-btn {
@@ -255,6 +415,72 @@ body {
   margin: 0 auto;
 }
 
+/* Indeterminate Tier 2 generation bar. The backend does not stream progress,
+   so this deliberately avoids a fake percentage; elapsed time is the honest
+   signal that the request is still running. */
+.tier2-progress {
+  flex: 0 0 auto;
+  margin: 2px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(77, 208, 225, 0.06);
+}
+
+.tier2-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tier2-progress-head span:last-child {
+  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tier2-progress-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.tier2-progress-track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  animation: tier2-progress-slide 1.4s ease-in-out infinite;
+}
+
+.tier2-progress p {
+  margin: 8px 0 0;
+}
+
+@keyframes tier2-progress-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tier2-progress-track i {
+    width: 60%;
+    animation: none;
+    transform: none;
+  }
+}
+
 .layout-graphs {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -438,6 +664,24 @@ body {
   color: var(--muted);
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+/* Flame-field header: title left, view toggle right; metadata chips live in
+   their own row so the blue labels align with the title's left edge. */
+.panel-head-extra {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.flame-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -2px 0 10px;
 }
 
 .flame-canvas-wrap {
@@ -868,31 +1112,268 @@ body {
   margin-top: -4px;
 }
 
-/* Tab-3 graphs grid */
-.graphs-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+/* Tab-3 run diagnostics dashboard */
+.graphs-dashboard {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  margin-top: 16px;
+  margin-top: 8px;
 }
 
-.graphs-grid .panel {
+.graphs-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 2px 2px 0;
+}
+
+.graphs-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0.4px;
+}
+
+.graphs-heading p {
+  margin: 4px 0 0;
+}
+
+.graphs-kpis {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.graph-kpi {
+  min-width: 118px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.graph-kpi span {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.graph-kpi b {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.graphs-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 2.15fr) minmax(290px, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.graphs-row {
+  display: grid;
+  gap: 16px;
+}
+
+.graphs-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.graphs-hero > .panel,
+.graphs-row > .panel,
+.graphs-dashboard > .panel {
   margin-bottom: 0;
 }
 
-.graphs-wide {
-  grid-column: 1 / -1;
+.graphs-hero > .panel {
+  height: 100%;
+}
+
+.mini-graph-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Chart canvas: measured by the component; labels stay at CSS pixel size. */
+.chart-wrap {
+  width: 100%;
+  position: relative;
+}
+
+/* Cursor readout shared by the interactive charts. */
+.chart-tooltip {
+  position: absolute;
+  z-index: 8;
+  min-width: 158px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(11, 13, 20, 0.96);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.chart-tooltip.flip {
+  transform: translateX(-100%);
+}
+
+.chart-tooltip-title {
+  margin-bottom: 4px;
+  color: var(--accent-2);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.chart-tooltip-row .sw {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.chart-tooltip-row span {
+  color: var(--muted);
+}
+
+.chart-tooltip-row b {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hover-layer {
+  cursor: crosshair;
+}
+
+.hover-focus {
+  pointer-events: none;
+}
+
+.chart-svg .hover-crosshair {
+  stroke: #8b93ab;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-svg .axis text {
+  fill: var(--muted);
+  font-family: inherit;
+  font-size: 10.5px;
+}
+
+.chart-svg .axis line,
+.chart-svg .axis path {
+  stroke: #38435e;
+}
+
+.chart-svg .axis .domain {
+  stroke: #44506d;
+}
+
+.chart-svg .axis-y-right text {
+  fill: #9aa6c2;
+}
+
+.chart-svg .radius-axis-label,
+.chart-svg .axis-label {
+  fill: var(--muted);
+  font-size: 10.5px;
+}
+
+.chart-svg .axis-title {
+  fill: var(--muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+}
+
+.chart-svg .grid line {
+  stroke: #2a3247;
+  stroke-opacity: 0.55;
+  shape-rendering: crispEdges;
+}
+
+.chart-svg .grid .domain {
+  display: none;
+}
+
+.chart-svg .grid-x line {
+  stroke-opacity: 0.28;
+}
+
+.chart-svg .heat-cell {
+  shape-rendering: crispEdges;
+}
+
+.chart-svg .chart-boundary {
+  stroke: #5b6787;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  pointer-events: none;
+}
+
+.chart-hint {
+  margin: 6px 0 0;
+  line-height: 1.35;
+}
+
+.chart-note {
+  margin: 10px 0 0;
 }
 
 .suggestion-list {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.6;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
 }
 
 .suggestion-list li {
-  margin-bottom: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1180px) {
+  .graphs-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .graphs-row-3 {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
 }
 
 /* Fuel preset manager */

@@ -6,7 +6,7 @@ Protocol (JSON envelopes):
     {kind: "config", config: {...SimConfig fields}}        -> re-run live sim
     {kind: "sweep", sweep: {param: [values...]}}           -> parameter sweep
     {kind: "triage", run_id: str}                          -> tier 1 verdict + nearest PSI GT + match rationale
-    {kind: "tier2", run_id: str}                           -> tier 2 report (Azure-gated)
+    {kind: "tier2", run_id: str}                           -> tier 2 report (DeepSeek/NanoGPT, gated)
     {kind: "fuel_list"}                                    -> merged presets + field ranges
     {kind: "fuel_save", key, data}                         -> create/update custom preset
     {kind: "fuel_delete", key}                             -> remove custom preset
@@ -36,11 +36,11 @@ import websockets  # noqa: E402
 
 from env_loader import load_env  # noqa: E402
 
-# Load the optional repo-root .env before importing modules that snapshot
+# Load the optional repo-root .env before importing AI modules that snapshot
 # NANOGPT_*/AZURE_* environment variables at import time.
 load_env()
 
-from azure_frontier_client import azure_configured, synthesize  # noqa: E402
+from tier2_client import synthesize  # noqa: E402
 from fuel_db import FUEL_FIELDS, list_presets  # noqa: E402
 import fuel_db  # noqa: E402
 from jev_client import triage_pair, triage_sweep  # noqa: E402
@@ -364,8 +364,22 @@ async def _handle_tier2(run_id: str) -> dict[str, Any]:
     if verdict is None:
         verdict = await triage_pair(gt, sim_payload)
         _RUN_CACHE[run_id] = (res, sim_payload, verdict)
-    report_md = await synthesize(sim_payload, gt, verdict)
-    return {"kind": "tier2_report", "run_id": run_id, "markdown": report_md, "azure": azure_configured()}
+    report = await synthesize(sim_payload, gt, verdict)
+    return {
+        "kind": "tier2_report",
+        "run_id": run_id,
+        "markdown": report.markdown,
+        # Honest provenance: "nanogpt" (DeepSeek), "azure", or "local".
+        "engine": report.engine,
+        "engine_model": report.engine_model,
+        "notes": report.notes,
+        # Tier 2 synthesizes from a tier-1 verdict. Ship that verdict and its
+        # PSI match too, so the Jev panel stays in sync with the report instead
+        # of still claiming "Run triage".
+        "verdict": verdict.model_dump(),
+        "ground_truth": gt.model_dump() if gt else None,
+        "match": match.info,
+    }
 
 
 async def _dispatch(raw: str) -> dict[str, Any]:

@@ -786,12 +786,15 @@ double total_enthalpy(
 
 double stability_score(bool quenched, const std::vector<HistoryRow>& history) {
   if (quenched) return 8.0;
-  if (history.empty()) return 0.0;
-  const double first = history.front().peak_temp_k;
+  // Ignore the t=0 snapshot: it is the pre-run state, not combustion history.
+  const int first_idx =
+      (!history.empty() && history.front().iteration == 0) ? 1 : 0;
+  if (static_cast<int>(history.size()) <= first_idx) return 0.0;
+  const double first = history[first_idx].peak_temp_k;
   const double last = history.back().peak_temp_k;
   const double growth = std::max(last - first, 0.0);
   const int m = static_cast<int>(history.size());
-  const int start = std::max(0, m - 8);
+  const int start = std::max(first_idx, m - 8);
   double mean = 0.0;
   for (int i = start; i < m; ++i) mean += history[i].peak_temp_k;
   mean /= std::max(m - start, 1);
@@ -1105,6 +1108,19 @@ SimOutput run_simulation(const Config& cfg, const Mechanism& mech) {
   double quench_time = 0.0;
   double last_radius = 0.0;
   double last_save_t = 0.0;
+
+  // Save the pre-ignition state so every streamed series starts at t = 0 /
+  // iteration 0 instead of the first output-interval step (4 by default).
+  {
+    HistoryRow row = state_metrics(mech, cfg, grid, 0.0, 0, T, Y, rho, u, g_r,
+                                   mech.fuel_index, initial_fuel_mass);
+    out.history.push_back(row);
+    out.times.push_back(0.0);
+    out.frames.push_back(
+        paint_temperature(grid, T, cfg.nx, cfg.ny, b.T_inner, b.T_outer));
+    out.radial_frames.push_back(coarse_radial(mech, grid, 0.0, T, Y, rho, u));
+    last_radius = row.max_flame_radius_m;
+  }
 
   for (int step = 1; step <= cfg.iteration_count; ++step) {
     double dt_remaining = cfg.dt_s;

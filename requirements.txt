@@ -7,7 +7,7 @@ python-dotenv>=1.0
 websockets>=13.0
 httpx>=0.27
 
-# AI tier 2 (Azure AI Foundry)
+# AI tier 2 (primary DeepSeek uses httpx; Azure fallback uses openai)
 openai>=1.51
 
 # C++ bridge (real solver slots in via pybind11)

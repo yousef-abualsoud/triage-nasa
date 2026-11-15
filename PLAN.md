@@ -37,15 +37,26 @@
 - [x] Tier-1 engine wiring — repo-root `.env` auto-load (shell/container env
       wins), explicit `engine` field (`jev`/`local`), honest no-key vs
       call-failure fallback notes, bounded-concurrent sweep triage
-- [x] `src/python/azure_frontier_client.py` — tier-2 synthesis + fallback report
+- [x] `src/python/tier2_client.py` — Tier 2 synthesis on
+      `deepseek/deepseek-v4.1-flash-1017:thinking` via NanoGPT's chat endpoint
+      (8000-token cap for reasoning + report), optional Azure fallback, local
+      template last; reports carry `engine`/`engine_model` provenance
+- [x] Tier-2 generation loading bar — indeterminate animated bar with elapsed
+      seconds (no fake percentage) shown while triage + synthesis run
 - [x] Frontend: three-tab dashboard; ControlPanel with spherical inputs
       (mass flow, mixing mode, φ, oxidizer, r_min/r_max/Nr, BCs); painted
       2D/3D flame; Jev comparison; dominant Tier-2 panel; Tab-3 radial
       T/q̇/species profiles and T(r,t) heatmap; solver diagnostics in Suggestions
-- [x] Tests: 52 passed — thermochemistry/stoichiometry, grid/Thomas/transport,
-      solver end-to-end, C++/Python parity, PSI parsers and real-metadata
-      reduction, match-rationale/no-match states, `.env` loading, Jev
-      decision-answer mapping, fallback/sweep engine wiring
+- [x] Tests: 61 passed — thermochemistry/stoichiometry, grid/Thomas/transport,
+      solver end-to-end, C++/Python parity (including the new t=0 history
+      origin), PSI parsers and real-metadata reduction, match-rationale/no-match
+      states, `.env` loading, Jev decision-answer mapping, fallback/sweep engine
+      wiring, Tier-2 engine selection/provenance and live-path payload shape
+- [x] Tab 3 diagnostics dashboard — responsive SVG charts measured at CSS pixel
+      size, axis titles in dedicated gutters, 0-based time/iteration/radius
+      axes with solver-emitted t=0 samples and radial curves extended to r=0
+      (true `r_min` boundary marked), dual axes for soot vs mean T, KPI strip,
+      hero + suggestions rail, and a seamless T(r,t) heatmap
 - [x] Internal as-built solver notes and the deferred revision tracker
       (kept out of the distributed repository)
 - [x] README (judge quick start + AI disclosure + 1D-spherical 3D disclosure)
@@ -57,8 +68,9 @@
 - `mechanism_dict`: `mechanism.mechanism_payload()` (species order, W, hf,
   NASA-7/constant cp, transport coefficients, ν, orders, A/β/Ea, constants).
 - Output keys: `frames` (painted T `[ny][nx]`, K), `times` (s),
-  `history` (per-saved-step scalars), `final` (existing scalars + `radial` and
-  `diagnostics`), `radial_frames` (coarse radial snapshots).
+  `history` (per-saved-step scalars, including a synthetic `iteration=0` /
+  `t=0` row so streamed series start at the origin), `final` (existing scalars
+  + `radial` and `diagnostics`), `radial_frames` (coarse radial snapshots).
 - Geometry: **1D spherical radial** `r_min_m..r_max_m`, `Nr` cell-centered
   cells; display grid `nx × ny` is independent.
 - Equations: the document's literal forms — continuity `u = ṁ/(4πr²ρ)`, EOS,
@@ -79,10 +91,21 @@
 
 ### Handoff snapshot (survives context compaction)
 
-- **Branch:** `main` is merged and pushed at `35bd347` (live Jev 1.14);
-  `feat/solver-1d-spherical` matches it exactly. No PR was needed (fast-forward).
-- **Solver:** NumPy reference + C++ `triage_core`; 52 tests pass; production
-  frontend build is clean.
+- **Branch:** `main` is merged and pushed at `c80e94a` (docs merge record);
+  `feat/solver-1d-spherical` matches it exactly. The Tier 2 DeepSeek work and
+  the Tab 3 diagnostics redesign are currently in the working tree,
+  uncommitted: 61 tests pass and the production frontend build is clean.
+- **Solver:** NumPy reference + C++ `triage_core`; both emit a synthetic
+  `iteration=0` / `t=0` history + frame sample so every streamed time series
+  starts at the origin. NumPy history now carries `iteration` like the C++
+  path; stability scoring ignores the pre-run sample. 61 tests pass;
+  production frontend build is clean.
+- **Tab 3:** responsive dashboard (measured chart widths, gutter-mounted axis
+  titles, gridlines), KPI strip, burn-curves + suggestions hero, 3-up radial
+  trio, seamless T(r,t) heatmap, and 3-up history row. Verified live at
+  1280×720: all first x ticks are 0, all time/iteration/radial paths start at
+  the left margin (radial curves hold the inner-boundary value to r=0, with the
+  real `r_min` boundary marked), no label collisions, no horizontal overflow.
 - **Data:** 24 PSI Combustion Science investigations catalogued; ACME s-Flame
   (PSI-23) has 286 test points across 18 days, reduced to 20 curated runs
   (CH₄ 4, C₂H₄ 7, H₂ 9; 4 stable, 16 extinguished; 21%/30% O₂; N₂/He
@@ -96,8 +119,14 @@
   bounded-concurrent `triage_sweep`, and every verdict carries
   `engine="jev"|"local"` (shown as a chip). A local key now returns live Jev
   verdicts end-to-end; without a key or decisions access the same path falls
-  back to local with the API reason. Tier 2 likewise falls back without Azure
-  credentials.
+  back to local with the API reason. Tier 2 uses
+  `deepseek/deepseek-v4.1-flash-1017:thinking` (`TIER2_MODEL`) through
+  NanoGPT's OpenAI-compatible chat endpoint, reusing `NANOGPT_API_KEY`; the
+  8000-token cap leaves room for reasoning tokens plus the ~450-word report.
+  Azure is an optional fallback, then the local template. Every report carries
+  `engine`/`engine_model`, and the UI chip names the engine that actually
+  answered. Live check: the default 200-step run produced the four-section
+  report in ~15 s (1273 input / 3499 output tokens, ≈$0.0021).
 - **Docker:** packaging fixed (`Dockerfile.frontend` builds the SPA; compose no
   longer mounts `dist/`; `.dockerignore` excludes docs/raw cache), but
   `docker compose up --build` is still unverified — Docker is not installed in
@@ -152,9 +181,10 @@
 
 5. **Final QA sweep**
    - Why: last check before tagging; catches regressions from UI/data changes.
-   - Scope: `pytest` (52), `npm run build`, default run, CH₄/C₂H₄/C₃H₈/H₂
-     presets, one sweep, custom-fuel save/delete, triage, Tier-2 fallback,
-     desktop + narrow viewport, browser console free of errors.
+   - Scope: `pytest` (60), `npm run build`, default run, CH₄/C₂H₄/C₃H₈/H₂
+     presets, one sweep, custom-fuel save/delete, triage, live Tier-2 DeepSeek
+     report + local fallback, desktop + narrow viewport, browser console free
+     of errors.
    - Files: `tests/`, frontend components, `src/python/server.py`.
    - Done when: all checks pass or remaining issues are documented in PLAN.
 
@@ -175,7 +205,7 @@
      stale match cannot be shown against new conditions),
      `tests/test_psi_repo.py`. `jev_client.py` did not need changes: the
      rationale is presentation metadata, not part of the verdict prompt.
-   - Verified: 52 tests pass; live browser run shows real PSI
+   - Verified: 60 tests pass; live browser run shows real PSI
      (`19304A2`, d 0.175, runner-up `20136G2`) and the C₃H₈/Mars no-match
      state; production build clean.
    - Done when: the panel shows selected accession/test point, distance

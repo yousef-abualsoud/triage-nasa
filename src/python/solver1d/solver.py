@@ -98,6 +98,7 @@ def _state_metrics(
     cfg: Any,
     grid: RadialGrid,
     t: float,
+    iteration: int,
     T: np.ndarray,
     Y: np.ndarray,
     rho: np.ndarray,
@@ -127,6 +128,7 @@ def _state_metrics(
     qdot = mech.heat_release(T, rho, Y)
     return {
         "t_s": round(float(t), 6),
+        "iteration": int(iteration),
         "max_flame_radius_m": round(float(radius), 6),
         "peak_temp_k": round(float(np.max(T)), 1),
         "mean_temp_k": round(mean_t, 1),
@@ -354,6 +356,30 @@ def run(cfg: Any) -> dict[str, Any]:
     last_save_t = 0.0
     last_diag: dict[str, Any] = {}
 
+    # Save the pre-ignition state so every streamed series starts at t = 0 /
+    # iteration 0 instead of the first output-interval step (4 by default).
+    initial_entry = _state_metrics(
+        mech,
+        cfg,
+        grid,
+        0.0,
+        0,
+        T,
+        Y,
+        rho,
+        u,
+        g_r,
+        fuel_index,
+        initial_fuel_mass,
+    )
+    history.append(initial_entry)
+    times.append(0.0)
+    frames.append(
+        grid.paint_temperature(T, int(cfg.nx), int(cfg.ny), T_inner, T_outer)
+    )
+    radial_frames.append(_coarse_radial(mech, grid, 0.0, T, Y, rho, u))
+    last_radius = float(initial_entry["max_flame_radius_m"])
+
     n_outer = int(cfg.iteration_count)
     for step in range(1, n_outer + 1):
         dt_remaining = float(cfg.dt_s)
@@ -415,7 +441,7 @@ def run(cfg: Any) -> dict[str, Any]:
         should_save = (step % int(cfg.output_interval_steps) == 0) or (step == n_outer)
         if should_save:
             entry = _state_metrics(
-                mech, cfg, grid, t, T, Y, rho, u, g_r, fuel_index, initial_fuel_mass
+                mech, cfg, grid, t, step, T, Y, rho, u, g_r, fuel_index, initial_fuel_mass
             )
             if entry["t_s"] > last_save_t:
                 entry["flame_speed_m_per_s"] = round(
@@ -440,9 +466,9 @@ def run(cfg: Any) -> dict[str, Any]:
             float(flame_radius(T, grid, t0)), 6
         ),
         "soot_volume_fraction": round(
-            _state_metrics(mech, cfg, grid, t, T, Y, rho, u, g_r, fuel_index, initial_fuel_mass)[
-                "soot_index"
-            ]
+            _state_metrics(
+                mech, cfg, grid, t, n_outer, T, Y, rho, u, g_r, fuel_index, initial_fuel_mass
+            )["soot_index"]
             * 1.0e-3,
             8,
         ),

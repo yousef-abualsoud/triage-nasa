@@ -345,6 +345,9 @@ export default function FlameField3D({
     <div className="panel flame-panel">
       <div className="panel-head">
         <h2>Flame Field (3D)</h2>
+        <div className="panel-head-extra">{headerExtra}</div>
+      </div>
+      <div className="flame-meta">
         <span
           className="chip"
           title="The 1D spherical radial T(r) field is painted on a centered display grid and revolved about the flame axis; the solver itself is 1D spherical."
@@ -355,7 +358,6 @@ export default function FlameField3D({
         {time != null && (
           <span className="chip">t = {time.toFixed ? time.toFixed(3) : time} s</span>
         )}
-        {headerExtra}
       </div>
       <div className="flame-canvas-wrap gl-wrap" ref={wrapRef}>
         {!frame && <div className="flame-placeholder">Waiting for solver frames…</div>}

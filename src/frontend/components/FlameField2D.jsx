@@ -77,9 +77,11 @@ export default function FlameField2D({
     <div className="panel flame-panel">
       <div className="panel-head">
         <h2>Flame Field (2D)</h2>
+        <div className="panel-head-extra">{headerExtra}</div>
+      </div>
+      <div className="flame-meta">
         <span className="chip">{modeLabel}</span>
         {time != null && <span className="chip">t = {time.toFixed ? time.toFixed(3) : time} s</span>}
-        {headerExtra}
       </div>
       <div className="flame-canvas-wrap">
         <canvas

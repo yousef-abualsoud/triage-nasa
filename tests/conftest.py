@@ -27,5 +27,17 @@ def _isolate_local_env(monkeypatch, tmp_path):
     import env_loader
 
     monkeypatch.setattr(env_loader, "ENV_PATH", tmp_path / "absent.env")
-    for name in ("NANOGPT_API_KEY", "JEV_MODEL", "NANOGPT_BASE_URL"):
+    for name in (
+        "NANOGPT_API_KEY",
+        "NANOGPT_BASE_URL",
+        "JEV_MODEL",
+        "JEV_CONCURRENCY",
+        "TIER2_MODEL",
+        "TIER2_MAX_TOKENS",
+        "TIER2_TIMEOUT_S",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_API_VERSION",
+        "AZURE_OPENAI_DEPLOYMENT",
+    ):
         monkeypatch.delenv(name, raising=False)

@@ -7,6 +7,7 @@ import IterationGraph from "./components/IterationGraph.jsx";
 import CalculationLog from "./components/CalculationLog.jsx";
 import JevComparison from "./components/JevComparison.jsx";
 import MoreGraphs from "./components/MoreGraphs.jsx";
+import ExportReportButton from "./components/ExportReportButton.jsx";
 
 const DEFAULT_CONFIG = {
   fuel: "CH4",
@@ -88,6 +89,22 @@ export default function App() {
   const [frameIndex, setFrameIndex] = useState(0);
   const [viewMode, setViewMode] = useState("3D");
   const [tab, setTab] = useState("run");
+  const [tier2Elapsed, setTier2Elapsed] = useState(0);
+
+  // Tier 2 runs tier-1 triage + PSI matching before the frontier call, so a
+  // request can take 10–30 s. Keep an honest indeterminate bar with elapsed
+  // time instead of a fake percentage.
+  useEffect(() => {
+    if (!backend.tier2Loading) {
+      setTier2Elapsed(0);
+      return undefined;
+    }
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setTier2Elapsed(Math.floor((Date.now() - started) / 1000));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [backend.tier2Loading]);
 
   // Initial run once connected.
   useEffect(() => {
@@ -159,19 +176,35 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="tab-nav" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={tab === t.key}
-            className={`tab-btn ${tab === t.key ? "active" : ""}`}
-            onClick={() => setTab(t.key)}
-            type="button"
-          >
-            {t.label}
-          </button>
-        ))}
+      <nav className="tab-nav" aria-label="Dashboard sections">
+        <div className="tab-list" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
+              className={`tab-btn ${tab === t.key ? "active" : ""}`}
+              onClick={() => setTab(t.key)}
+              type="button"
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <ExportReportButton
+          simResult={backend.simResult}
+          verdictMsg={backend.verdict}
+          tier2Report={backend.tier2Report}
+          busy={backend.busy}
+          history={history}
+          frame={frame}
+          frameIndex={frameIndex}
+          ambientK={config.ambient_temperature_k}
+          finalData={finalData}
+          groundTruth={groundTruth}
+          radialFrames={backend.simResult?.radial_frames ?? []}
+          finalRadial={finalData?.radial ?? null}
+        />
       </nav>
 
       {backend.error && (
@@ -253,19 +286,64 @@ export default function App() {
               <div className="panel tier2-panel">
                 <div className="panel-head">
                   <h2>Tier 2 — Frontier synthesis</h2>
-                  <span className="chip">
-                    {backend.tier2Report?.azure
-                      ? "Azure AI Foundry"
-                      : "local fallback"}
-                  </span>
+                  {backend.tier2Report && (
+                    <span
+                      className={`chip ${
+                        backend.tier2Report.engine === "local" ? "chip-warn" : ""
+                      }`}
+                      title={
+                        backend.tier2Report.engine === "nanogpt"
+                          ? `${backend.tier2Report.engine_model} on NanoGPT (US-hosted)`
+                          : backend.tier2Report.engine === "azure"
+                            ? `${backend.tier2Report.engine_model} on Azure AI Foundry`
+                            : "Deterministic local template — no frontier model call"
+                      }
+                    >
+                      {backend.tier2Report.engine === "nanogpt"
+                        ? "DeepSeek"
+                        : backend.tier2Report.engine === "azure"
+                          ? "Azure"
+                          : "local fallback"}
+                    </span>
+                  )}
                 </div>
                 <button
                   className="action-btn primary"
                   onClick={() => backend.requestTier2(runId)}
                   disabled={!backend.connected || backend.busy || !runId}
                 >
-                  Request Tier 2 report
+                  {backend.tier2Loading
+                    ? "Generating…"
+                    : backend.tier2Report
+                      ? "Regenerate Tier 2 report"
+                      : "Request Tier 2 report"}
                 </button>
+                {backend.tier2Loading && (
+                  <div
+                    className="tier2-progress"
+                    role="progressbar"
+                    aria-label="Tier 2 report generation"
+                    aria-busy="true"
+                    aria-valuetext={`Generating Tier 2 report, ${tier2Elapsed} seconds elapsed`}
+                  >
+                    <div className="tier2-progress-head">
+                      <span>Generating Tier 2 report…</span>
+                      <span>{tier2Elapsed}s</span>
+                    </div>
+                    <div className="tier2-progress-track" aria-hidden="true">
+                      <i />
+                    </div>
+                    <p className="muted small">
+                      Tier-1 triage and PSI match first, then frontier synthesis.
+                      Usually 10–30 s.
+                    </p>
+                  </div>
+                )}
+                {backend.tier2Report?.notes && (
+                  <p className="muted small" title={backend.tier2Report.notes}>
+                    {backend.tier2Report.notes}
+                  </p>
+                )}
                 {backend.tier2Report ? (
                   <MarkdownView markdown={backend.tier2Report.markdown} />
                 ) : (

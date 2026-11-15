@@ -44,6 +44,18 @@ def test_run_returns_the_seam_contract_and_finite_fields():
         assert key in radial["mass_fractions"]
 
 
+def test_history_starts_at_the_run_origin():
+    cfg = SimConfig(**{**SMALL, "iteration_count": 20})
+    result = run(cfg)
+    # The dashboard graphs anchor every x axis at 0, so the streamed series
+    # must include the pre-run state rather than starting at step 10.
+    assert result["times"][0] == 0.0
+    assert result["history"][0]["t_s"] == 0.0
+    assert result["history"][0]["iteration"] == 0
+    assert all("iteration" in row for row in result["history"])
+    assert result["history"][-1]["iteration"] == cfg.iteration_count
+
+
 def test_species_mass_fractions_are_nonnegative_and_normalized():
     cfg = SimConfig(**SMALL)
     result = run(cfg)

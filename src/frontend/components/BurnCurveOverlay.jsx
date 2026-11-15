@@ -1,5 +1,15 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
+import ChartTooltip from "./ChartTooltip.jsx";
+import {
+  CHART_M,
+  addAxes,
+  addAxisTitles,
+  addGrid,
+  nearestValueIndex,
+  placeTooltip,
+  useChartWidth,
+} from "./chartUtils.js";
 
 /**
  * Overlay of C++ predicted curves vs historical NASA flight data.
@@ -8,83 +18,81 @@ import * as d3 from "d3";
  */
 export default function BurnCurveOverlay({ simHistory, groundTruth }) {
   const svgRef = useRef(null);
+  const [wrapRef, measured] = useChartWidth();
+  const [hover, setHover] = useState(null);
   const hasGtProfile = Boolean(groundTruth?.profile_t?.length);
 
   useEffect(() => {
-    if (!simHistory?.length) return;
+    if (!simHistory?.length || !svgRef.current) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const W = 520;
-    const H = 260;
-    const M = { top: 24, right: 56, bottom: 34, left: 52 };
-
-    const tSim = simHistory.map((h) => ({
-      t: h.t_s,
-      temp: h.peak_temp_k,
-      r: (h.max_flame_radius_m ?? 0) * 1000,
-    }));
-
-    const tempExtent = d3.extent(tSim, (d) => d.temp) ?? [300, 2000];
-    const rExtent = d3.extent(tSim, (d) => d.r) ?? [0, 10];
-    const tExtent = d3.extent(tSim, (d) => d.t) ?? [0, 1];
-
-    const x = d3
-      .scaleLinear()
-      .domain(tExtent)
-      .range([M.left, W - M.right]);
-    const yTemp = d3
-      .scaleLinear()
-      .domain([Math.min(tempExtent[0], 300), tempExtent[1] * 1.05])
-      .range([H - M.bottom, M.top]);
-    const yR = d3
-      .scaleLinear()
-      .domain([0, Math.max(rExtent[1] * 1.2, 1)])
-      .range([H - M.bottom, M.top]);
-
+    const W = measured || 760;
+    const H = 300;
+    const m = { ...CHART_M, top: 20 };
     svg.attr("viewBox", `0 0 ${W} ${H}`);
 
-    // Grid + axes
+    const tSim = simHistory
+      .map((h) => ({
+        t: h.t_s ?? 0,
+        temp: h.peak_temp_k,
+        r: (h.max_flame_radius_m ?? 0) * 1000,
+      }))
+      .filter((d) => d.temp != null);
+    if (!tSim.length) return;
+
+    // Time series start at t=0, matching the solver's initial saved state.
+    const tMax = d3.max(tSim, (d) => d.t) || 1;
+    const x = d3
+      .scaleLinear()
+      .domain([0, tMax])
+      .nice()
+      .range([m.left, W - m.right]);
+
+    const tempExtent = d3.extent(tSim, (d) => d.temp);
+    const yTemp = d3
+      .scaleLinear()
+      .domain([
+        Math.min(tempExtent[0], 300),
+        Math.max(tempExtent[1] * 1.05, tempExtent[0] + 1),
+      ])
+      .nice()
+      .range([H - m.bottom, m.top]);
+    const rExtent = d3.extent(tSim, (d) => d.r) ?? [0, 1];
+    const yR = d3
+      .scaleLinear()
+      .domain([0, Math.max(rExtent[1] * 1.15, 1)])
+      .nice()
+      .range([H - m.bottom, m.top]);
+
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
+    addGrid(svg, { W, H, x, y: yTemp, m, xTicks: 5, yTicks: 5 });
+    addAxes(svg, {
+      W,
+      H,
+      x,
+      y: yTemp,
+      m,
+      xTicks: 5,
+      yTicks: 5,
+      xFormat: (d) => d.toFixed(2),
+      yFormat: d3.format(",.0f"),
+    });
     svg
       .append("g")
-      .attr("transform", `translate(0,${H - M.bottom})`)
+      .attr("class", "axis axis-y axis-y-right")
+      .attr("transform", `translate(${W - m.right},0)`)
       .call(
-        d3
-          .axisBottom(x)
-          .ticks(5)
-          .tickFormat((d) => `${d.toFixed(2)}s`)
+        d3.axisRight(yR).ticks(4).tickPadding(7).tickFormat(d3.format(".0f"))
       );
-    svg
-      .append("g")
-      .attr("transform", `translate(${M.left},0)`)
-      .call(d3.axisLeft(yTemp).ticks(5));
-    svg
-      .append("g")
-      .attr("transform", `translate(${W - M.right},0)`)
-      .call(d3.axisRight(yR).ticks(4));
-
-    svg
-      .append("text")
-      .attr("x", W / 2)
-      .attr("y", H - 4)
-      .attr("class", "axis-label")
-      .attr("text-anchor", "middle")
-      .text("time (s)");
-
-    svg
-      .append("text")
-      .attr("x", 14)
-      .attr("y", M.top + 2)
-      .attr("class", "axis-label")
-      .text("peak T (K)");
-
-    svg
-      .append("text")
-      .attr("x", W - 14)
-      .attr("y", M.top + 2)
-      .attr("class", "axis-label")
-      .attr("text-anchor", "end")
-      .text("radius (mm)");
+    addAxisTitles(svg, {
+      W,
+      H,
+      m,
+      x: "time (s)",
+      y: "peak T (K)",
+      yRight: "radius (mm)",
+    });
 
     // Sim temperature curve (solid)
     const lineT = d3
@@ -98,6 +106,7 @@ export default function BurnCurveOverlay({ simHistory, groundTruth }) {
       .attr("fill", "none")
       .attr("stroke", "#ff7043")
       .attr("stroke-width", 2)
+      .attr("stroke-linecap", "round")
       .attr("d", lineT);
 
     // Sim radius curve (solid, right axis)
@@ -112,19 +121,18 @@ export default function BurnCurveOverlay({ simHistory, groundTruth }) {
       .attr("fill", "none")
       .attr("stroke", "#4dd0e1")
       .attr("stroke-width", 2)
+      .attr("stroke-linecap", "round")
       .attr("d", lineR);
 
     // Ground truth overlays when available (dashed + circles)
     if (groundTruth?.profile_t?.length) {
       const gtTimes = groundTruth.profile_r?.length
         ? d3.range(groundTruth.profile_t.length).map(
-            (i) =>
-              (tExtent[1] * i) /
-              Math.max(groundTruth.profile_t.length - 1, 1)
+            (i) => (tMax * i) / Math.max(groundTruth.profile_t.length - 1, 1)
           )
         : [];
       const gtPairs = groundTruth.profile_t.map((temp, i) => ({
-        t: gtTimes[i] ?? tExtent[1],
+        t: gtTimes[i] ?? tMax,
         temp,
         r: groundTruth.profile_r?.[i] ?? 0,
       }));
@@ -152,7 +160,57 @@ export default function BurnCurveOverlay({ simHistory, groundTruth }) {
         .attr("fill", "#ffccbc")
         .attr("stroke", "#5d4037");
     }
-  }, [simHistory, groundTruth]);
+
+    const tValues = tSim.map((d) => d.t);
+    const focus = svg.append("g").attr("class", "hover-focus").style("display", "none");
+    const crosshair = focus
+      .append("line")
+      .attr("class", "hover-crosshair")
+      .attr("y1", m.top)
+      .attr("y2", H - m.bottom);
+    const dotT = focus.append("circle").attr("r", 3.4).attr("fill", "#ff7043");
+    const dotR = focus.append("circle").attr("r", 3.4).attr("fill", "#4dd0e1");
+    svg
+      .append("rect")
+      .attr("class", "hover-layer")
+      .attr("x", m.left)
+      .attr("y", m.top)
+      .attr("width", Math.max(W - m.left - m.right, 1))
+      .attr("height", Math.max(H - m.top - m.bottom, 1))
+      .attr("fill", "transparent")
+      .on("pointermove", (event) => {
+        const [px] = d3.pointer(event, svg.node());
+        const index = nearestValueIndex(tValues, x.invert(px));
+        const point = tSim[index];
+        const cx = x(point.t);
+        const ty = yTemp(point.temp);
+        const ry = yR(point.r);
+        focus.style("display", null);
+        crosshair.attr("x1", cx).attr("x2", cx);
+        dotT.attr("cx", cx).attr("cy", ty);
+        dotR.attr("cx", cx).attr("cy", ry);
+        setHover({
+          ...placeTooltip(cx, Math.min(ty, ry), W, H),
+          title: `x = ${point.t.toFixed(4)} s`,
+          rows: [
+            {
+              label: "peak T",
+              value: `${d3.format(",.1f")(point.temp)} K`,
+              color: "#ff7043",
+            },
+            {
+              label: "radius",
+              value: `${d3.format(",.2f")(point.r)} mm`,
+              color: "#4dd0e1",
+            },
+          ],
+        });
+      })
+      .on("pointerleave", () => {
+        focus.style("display", "none");
+        setHover(null);
+      });
+  }, [simHistory, groundTruth, measured]);
 
   return (
     <div className="panel curve-panel">
@@ -161,18 +219,32 @@ export default function BurnCurveOverlay({ simHistory, groundTruth }) {
         <span className="legend">
           <i className="sw sim-temp" /> sim peak T
           <i className="sw sim-rad" /> sim radius
-          <i className="sw gt" /> NASA PSI {hasGtProfile ? "telemetry" : "conditions"}
+          {hasGtProfile && (
+            <>
+              <i className="sw gt" /> NASA PSI telemetry
+            </>
+          )}
         </span>
       </div>
-      <svg ref={svgRef} className="burn-svg" role="img" aria-label="Burn curve overlay" />
+      <div className="chart-wrap" ref={wrapRef}>
+        <svg
+          ref={svgRef}
+          className="chart-svg"
+          data-chart="burn-curves"
+          role="img"
+          aria-label="Burn curve overlay"
+        />
+        <ChartTooltip hover={hover} />
+      </div>
       {!simHistory?.length && (
         <p className="muted small">Run a simulation to populate the overlay.</p>
       )}
       {groundTruth && !hasGtProfile && (
-        <p className="muted small">
-          {groundTruth.investigation || "NASA PSI"} {groundTruth.test_point || ""} carries
-          flows, ion current and PMT telemetry, not a radius/temperature series —
-          compare its conditions and burn duration in the Jev panel.
+        <p className="muted small chart-note">
+          {groundTruth.investigation || "NASA PSI"}{" "}
+          {groundTruth.test_point || ""} carries flows, ion current and PMT
+          telemetry, not a radius/temperature series — compare its conditions
+          and burn duration in the Jev panel.
         </p>
       )}
     </div>

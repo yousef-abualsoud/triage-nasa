@@ -30,6 +30,8 @@ def test_cpp_matches_reference_on_short_run():
         cfg.model_dump(), mechanism_payload(cfg.resolved_mechanism())
     )
     assert len(raw["frames"]) == len(ref["frames"])
+    assert raw["times"][0] == ref["times"][0] == 0.0
+    assert raw["history"][0]["iteration"] == ref["history"][0]["iteration"] == 0
     assert raw["final"]["peak_temp_k"] == pytest.approx(ref["final"]["peak_temp_k"], abs=0.2)
     assert raw["final"]["max_flame_radius_m"] == pytest.approx(
         ref["final"]["max_flame_radius_m"], abs=1e-5

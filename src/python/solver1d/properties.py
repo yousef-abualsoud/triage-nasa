@@ -264,9 +264,10 @@ def stability_score(quenched: bool, history: list[dict[str, Any]]) -> float:
     """Heuristic flame-stability score, 0-100 (existing UI contract)."""
     if quenched:
         return 8.0
-    if not history:
+    # Ignore the t=0 snapshot: it is the pre-run state, not combustion history.
+    peaks = [h["peak_temp_k"] for h in history if h.get("iteration", 1) > 0]
+    if not peaks:
         return 0.0
-    peaks = [h["peak_temp_k"] for h in history]
     growth = max(peaks[-1] - peaks[0], 0.0)
     recent = peaks[-8:] if len(peaks) >= 8 else peaks
     drift = float(np.std(recent)) if recent else 0.0

@@ -20,6 +20,7 @@ export function useTriageBackend() {
   const [sweepResults, setSweepResults] = useState(null);
   const [verdict, setVerdict] = useState(null);
   const [tier2Report, setTier2Report] = useState(null);
+  const [tier2Loading, setTier2Loading] = useState(false);
   const [fuelInfo, setFuelInfo] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -36,6 +37,7 @@ export function useTriageBackend() {
       setSimResult(m);
       setVerdict(null);
       setTier2Report(null);
+      setTier2Loading(false);
       setBusy(false);
     },
     sweep_result: (m) => {
@@ -52,7 +54,18 @@ export function useTriageBackend() {
       }
     },
     tier2_report: (m) => {
+      // Tier 2 runs (or reuses) a tier-1 verdict; sync the Jev panel so it does
+      // not still say "Run triage" after the report used that verdict.
+      if (m.verdict) {
+        setVerdict({
+          run_id: m.run_id,
+          verdict: m.verdict,
+          ground_truth: m.ground_truth,
+          match: m.match,
+        });
+      }
       setTier2Report(m);
+      setTier2Loading(false);
       setBusy(false);
       const res = pendingRef.current.get(m.run_id);
       if (res) {
@@ -89,6 +102,7 @@ export function useTriageBackend() {
     },
     error: (m) => {
       setError(m.message);
+      setTier2Loading(false);
       setBusy(false);
       // Reject any pending promise so awaits throw instead of hanging.
       for (const [k, res] of pendingRef.current) {
@@ -109,6 +123,7 @@ export function useTriageBackend() {
       };
       ws.onclose = () => {
         setConnected(false);
+        setTier2Loading(false);
         setTimeout(connect, 2000);
       };
       ws.onerror = () => setConnected(false);
@@ -172,7 +187,13 @@ export function useTriageBackend() {
     (runId) =>
       new Promise((resolve) => {
         pendingRef.current.set(runId, resolve);
-        send({ kind: "tier2", run_id: runId });
+        const sent = send({ kind: "tier2", run_id: runId });
+        if (!sent) {
+          pendingRef.current.delete(runId);
+          resolve({ __error: "backend not connected" });
+          return;
+        }
+        setTier2Loading(true);
       }),
     [send]
   );
@@ -183,6 +204,7 @@ export function useTriageBackend() {
     sweepResults,
     verdict,
     tier2Report,
+    tier2Loading,
     fuelInfo,
     error,
     busy,
