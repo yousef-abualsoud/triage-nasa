@@ -54,8 +54,9 @@ Check versions with `git --version`, `docker --version`,
 
 Start Docker Desktop and wait until it reports **Engine running**
 (`docker info` should succeed). If Docker returns an
-`npipe:////./pipe/docker_engine` error, the daemon has not started yet. Then,
-from a fresh clone:
+`npipe:////./pipe/docker_engine` error, the daemon has not started yet. Run the
+clone from your home directory or another empty parent directory, not from
+inside an existing checkout. Then:
 
 ```bash
 git clone https://github.com/yousef-abualsoud/triage-nasa.git
@@ -92,7 +93,8 @@ assume a Unix shell. On Windows, use WSL 2 for the local path; the C++ build
 flags target GCC/Clang.
 
 ```bash
-# 0. Clone and enter the repository
+# 0. From your home directory, clone and enter (skip the clone if already there)
+cd ~
 git clone https://github.com/yousef-abualsoud/triage-nasa.git
 cd triage-nasa
 
