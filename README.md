@@ -124,6 +124,10 @@ PYTHONPATH=src/python .venv/bin/python -m pytest -q tests/
 `sim_bridge.py` auto-loads `build/triage_core*.so` when present. The C++ build
 is optional; without it the NumPy reference implements the same solver seam.
 
+> **Ports:** Docker serves the dashboard at `http://localhost:8080`. Local
+> development serves it at `http://localhost:5173`; port 8080 is not used in
+> that path. Both connect to the backend WebSocket on `ws://localhost:8765`.
+
 Refresh or inspect the PSI data (requires network; the reduced output is
 shipped, while raw CSVs stay in the gitignored cache):
 
