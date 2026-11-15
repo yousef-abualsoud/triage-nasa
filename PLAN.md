@@ -79,7 +79,8 @@
 
 ### Handoff snapshot (survives context compaction)
 
-- **Branch:** `feat/solver-1d-spherical`; `origin/main` is `da3358c`; no PR yet.
+- **Branch:** `main` is merged and pushed at `35bd347` (live Jev 1.14);
+  `feat/solver-1d-spherical` matches it exactly. No PR was needed (fast-forward).
 - **Solver:** NumPy reference + C++ `triage_core`; 52 tests pass; production
   frontend build is clean.
 - **Data:** 24 PSI Combustion Science investigations catalogued; ACME s-Flame
@@ -141,14 +142,13 @@
    - Done when: README commands work from a clean checkout and
      `v1.0-submission` points at the final commit.
 
-4. **Merge branch to main**
-   - Why: `origin/main` is still at `da3358c`; the solver, real PSI data, and
-     Docker fixes live only on the feature branch.
-   - Scope: open a PR, review the diff, run tests, merge after QA; no force
-     push or history rewrite.
-   - Files: repository/branch state.
-   - Done when: `main` contains `ab9db58` + `7a8c499` (or squashed equivalents)
-     and the PR is closed.
+4. **Merge branch to main — DONE**
+   - Why: `origin/main` was still at `da3358c`; the solver, real PSI data, Jev
+     integration, and Docker fixes lived only on the feature branch.
+   - Done: fast-forwarded `main` `da3358c..35bd347` and pushed; re-ran `pytest`
+     (52 passed) and the production frontend build on `main`; remote `main`
+     contains no `.env` or `docs/`. `feat/solver-1d-spherical` is identical to
+     `main` and can be deleted whenever convenient.
 
 5. **Final QA sweep**
    - Why: last check before tagging; catches regressions from UI/data changes.
