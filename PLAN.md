@@ -31,8 +31,9 @@
       stability); raw CSVs cached in gitignored `data/psi_cache/`
 - [x] `src/python/s3_ingest.py` — curated real data first, explicit synthetic
       surrogate fallback (`source="synthetic"`)
-- [x] `src/python/jev_client.py` — tier-1 triage + 1D-spherical-aware heuristic;
-      real PSI accession/test-point identity, measured-field scoring
+- [x] `src/python/jev_client.py` — tier-1 triage via the native Jev Decisions
+      API (typed choice/score/noul questions) + 1D-spherical-aware local
+      fallback; real PSI accession/test-point identity, measured-field scoring
 - [x] Tier-1 engine wiring — repo-root `.env` auto-load (shell/container env
       wins), explicit `engine` field (`jev`/`local`), honest no-key vs
       call-failure fallback notes, bounded-concurrent sweep triage
@@ -41,10 +42,10 @@
       (mass flow, mixing mode, φ, oxidizer, r_min/r_max/Nr, BCs); painted
       2D/3D flame; Jev comparison; dominant Tier-2 panel; Tab-3 radial
       T/q̇/species profiles and T(r,t) heatmap; solver diagnostics in Suggestions
-- [x] Tests: 49 passed — thermochemistry/stoichiometry, grid/Thomas/transport,
+- [x] Tests: 52 passed — thermochemistry/stoichiometry, grid/Thomas/transport,
       solver end-to-end, C++/Python parity, PSI parsers and real-metadata
-      reduction, match-rationale/no-match states, `.env` loading and
-      fallback/sweep engine wiring
+      reduction, match-rationale/no-match states, `.env` loading, Jev
+      decision-answer mapping, fallback/sweep engine wiring
 - [x] Internal as-built solver notes and the deferred revision tracker
       (kept out of the distributed repository)
 - [x] README (judge quick start + AI disclosure + 1D-spherical 3D disclosure)
@@ -78,9 +79,8 @@
 
 ### Handoff snapshot (survives context compaction)
 
-- **Branch:** `feat/solver-1d-spherical` at `7a8c499`, two commits ahead of
-  `origin/main` (`da3358c`); no PR yet.
-- **Solver:** NumPy reference + C++ `triage_core`; 49 tests pass; production
+- **Branch:** `feat/solver-1d-spherical`; `origin/main` is `da3358c`; no PR yet.
+- **Solver:** NumPy reference + C++ `triage_core`; 52 tests pass; production
   frontend build is clean.
 - **Data:** 24 PSI Combustion Science investigations catalogued; ACME s-Flame
   (PSI-23) has 286 test points across 18 days, reduced to 20 curated runs
@@ -89,12 +89,14 @@
 - **Triage:** exact fuel + gravity-class gates (`zero_g` ≡ `iss_micro_g`);
   distance `|ΔO₂|/40 + |ΔP|/2 + |Δu|/2`, plus `0.15` if stable/extinguished
   differs; real PSI beats synthetic; no match returns `None`.
-- **AI engines:** Tier 1 targets `typesafe/jev-latest` via NanoGPT; the repo
+- **AI engines:** Tier 1 targets `typesafe/jev-latest` via NanoGPT's native
+  `POST /decisions` API with typed choice/score/noul questions; the repo
   `.env` is auto-loaded (shell/container values win), sweeps use
   bounded-concurrent `triage_sweep`, and every verdict carries
-  `engine="jev"|"local"` (shown as a chip). No key is present in this
-  environment, so all observed verdicts are the explicit local fallback.
-  Tier 2 likewise falls back without Azure credentials.
+  `engine="jev"|"local"` (shown as a chip). A local key is present but the
+  account currently returns `403 paid_features_disabled`, so all observed
+  verdicts remain the explicit local fallback until paid/decision models are
+  enabled. Tier 2 likewise falls back without Azure credentials.
 - **Docker:** packaging fixed (`Dockerfile.frontend` builds the SPA; compose no
   longer mounts `dist/`; `.dockerignore` excludes docs/raw cache), but
   `docker compose up --build` is still unverified — Docker is not installed in
@@ -150,7 +152,7 @@
 
 5. **Final QA sweep**
    - Why: last check before tagging; catches regressions from UI/data changes.
-   - Scope: `pytest` (49), `npm run build`, default run, CH₄/C₂H₄/C₃H₈/H₂
+   - Scope: `pytest` (52), `npm run build`, default run, CH₄/C₂H₄/C₃H₈/H₂
      presets, one sweep, custom-fuel save/delete, triage, Tier-2 fallback,
      desktop + narrow viewport, browser console free of errors.
    - Files: `tests/`, frontend components, `src/python/server.py`.
@@ -173,7 +175,7 @@
      stale match cannot be shown against new conditions),
      `tests/test_psi_repo.py`. `jev_client.py` did not need changes: the
      rationale is presentation metadata, not part of the verdict prompt.
-   - Verified: 49 tests pass; live browser run shows real PSI
+   - Verified: 52 tests pass; live browser run shows real PSI
      (`19304A2`, d 0.175, runner-up `20136G2`) and the C₃H₈/Mars no-match
      state; production build clean.
    - Done when: the panel shows selected accession/test point, distance

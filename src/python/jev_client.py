@@ -1,15 +1,18 @@
 """
-Tier 1 bulk triage via typesafe/jev-latest on NanoGPT (async, concurrent).
+Tier 1 triage via TypeSafe Jev on NanoGPT.
 
-Sends compact NASA-vs-sim payload pairs (~200 tokens each) and enforces the
-structured JevVerdict output schema. Falls back to a deterministic local
-heuristic when no API key is configured so demos never depend on network.
+Jev is a *decision model*, not a chat model: it answers named typed questions
+(``choice``/``score``/``noul``) and returns calibrated probabilities. We map
+those answers onto the existing ``JevVerdict`` schema so every downstream
+consumer (UI, Tier 2, sweeps) stays unchanged.
+
+Endpoint: ``POST {NANOGPT_BASE_URL}/decisions`` (native Decisions API).
+Reference: https://docs.nano-gpt.com/api-reference/endpoint/decisions
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 from pathlib import Path
@@ -20,29 +23,230 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from schema import CONSTANTS, JevVerdict, UnifiedPayload  # noqa: E402
 
-NANOGPT_BASE_URL = os.environ.get("NANOGPT_BASE_URL", "https://nano-gpt.com/api/v1")
+NANOGPT_BASE_URL = os.environ.get("NANOGPT_BASE_URL", "https://api.nano-gpt.com/api/v1")
 JEV_MODEL = "typesafe/jev-latest"
 MAX_CONCURRENCY = int(os.environ.get("JEV_CONCURRENCY", "12"))
 _TIMEOUT = httpx.Timeout(45.0)
+
+# Six ordered rubric points => an answer of 0..5 maps linearly onto 0..100.
+_SCORE_STEPS = 5
+_SOOT_CRITERIA = [
+    "0 (no soot)",
+    "20",
+    "40",
+    "60",
+    "80",
+    "100 (heavy soot)",
+]
+_STABILITY_CRITERIA = [
+    "0 (unstable or extinguished)",
+    "20",
+    "40",
+    "60",
+    "80",
+    "100 (steady flame)",
+]
+_DELTA_CRITERIA = [
+    "0 (identical)",
+    "20",
+    "40",
+    "60",
+    "80",
+    "100 (no agreement)",
+]
 
 
 def _api_key() -> str | None:
     return os.environ.get("NANOGPT_API_KEY")
 
 
-def _triage_prompt(gt: UnifiedPayload | None, sim: UnifiedPayload) -> str:
-    return (
-        "You are a combustion telemetry triage engine. Compare the NASA PSI ground-truth "
-        "run against the simulated run and classify. Respond ONLY with JSON matching: "
-        '{"flame_morphology": "spherical"|"teardrop"|"fragmented"|"extinguished", '
-        '"buoyancy_driven_convection": bool, '
-        '"nasa_experiment_profile_match": "ACME"|"SOFIE"|"FLEX"|"NONE", '
-        '"soot_volume_fraction_score": 0-100, '
-        '"radiant_heat_loss_critical": bool, '
-        '"stability_score": 0-100, "delta_score": 0-100, "confidence_score": 0-1, '
-        '"notes": str}\n'
-        f"NASA_GROUND_TRUTH: {gt.model_dump_json(exclude_none=True) if gt else 'N/A (no matching PSI run)'}\n"
-        f"SIM_PREDICTION: {sim.model_dump_json(exclude_none=True)}"
+def _decision_request(gt: UnifiedPayload | None, sim: UnifiedPayload) -> dict[str, Any]:
+    """Build the native Decisions API request.
+
+    The state carries only compact scalar telemetry — the 24-point profile
+    arrays are omitted because they cost tokens without informing the verdict.
+    """
+    state = {
+        "task": (
+            "Compare the NASA PSI reference run with the simulated 1D spherical "
+            "combustion run and answer the typed questions."
+        ),
+        "nasa_ground_truth": (
+            gt.model_dump(exclude_none=True, exclude={"profile_r", "profile_t"})
+            if gt
+            else None
+        ),
+        "sim_prediction": sim.model_dump(
+            exclude_none=True, exclude={"profile_r", "profile_t"}
+        ),
+        "solver_constraints": {
+            "geometry": "1D spherical finite-volume; a transverse buoyant teardrop is not resolvable.",
+            "gravity": "Gravity enters only as an effective radial acceleration.",
+            "no_ground_truth": (
+                "When nasa_ground_truth is null, choose NONE for the experiment "
+                "profile and use 50 for delta."
+            ),
+        },
+    }
+
+    questions = {
+        "flame_morphology": {
+            "type": "choice",
+            "instructions": (
+                "Classify the simulated flame morphology. Choose extinguished "
+                "when peak temperature is below about 500 K, fragmented when the "
+                "field is broken or inflow-dominated, otherwise spherical. The "
+                "solver is 1D spherical, so do not claim a transverse teardrop."
+            ),
+            "criteria": {
+                "spherical": "Centered, sustained, roughly spherical burn",
+                "teardrop": "Transverse buoyant teardrop (not resolvable here)",
+                "fragmented": "Broken, highly stretched, or inflow-dominated field",
+                "extinguished": "No sustained burn (peak temperature below ~500 K)",
+            },
+        },
+        "buoyancy_driven_convection": {
+            "type": "noul",
+            "instructions": (
+                "Is buoyancy-driven convection significant in this run? Consider "
+                "the gravity mode and the reported flame radius."
+            ),
+            "criteria": {
+                "true": "Effective gravity and flame size make buoyant convection significant",
+                "false": "Diffusion or weak effective gravity dominates",
+            },
+        },
+        "nasa_experiment_profile_match": {
+            "type": "choice",
+            "instructions": (
+                "Which NASA experiment profile best matches this comparison? Use "
+                "the ground-truth investigation identity when present; choose "
+                "NONE when ground truth is absent or unrelated."
+            ),
+            "criteria": {
+                "ACME": "ACME s-Flame / Coflow microgravity spherical flames",
+                "SOFIE": "SOFIE droplet or flame experiment",
+                "FLEX": "FLEX flame-spread experiment",
+                "NONE": "No matching NASA experiment profile",
+            },
+        },
+        "soot_volume_fraction_score": {
+            "type": "score",
+            "instructions": (
+                "How much soot is the simulated flame producing? Consider "
+                "soot_yield_index when present."
+            ),
+            "criteria": _SOOT_CRITERIA,
+        },
+        "radiant_heat_loss_critical": {
+            "type": "noul",
+            "instructions": (
+                "Is radiant heat loss critical for this flame, based on peak "
+                "temperature and the reported telemetry?"
+            ),
+            "criteria": {
+                "true": "Radiative loss materially affects the burn",
+                "false": "Radiative loss is not dominant",
+            },
+        },
+        "stability_score": {
+            "type": "score",
+            "instructions": "How stable is the simulated flame?",
+            "criteria": _STABILITY_CRITERIA,
+        },
+        "delta_score": {
+            "type": "score",
+            "instructions": (
+                "How much does the simulation disagree with the NASA reference? "
+                "Use 50 when ground truth is absent."
+            ),
+            "criteria": _DELTA_CRITERIA,
+        },
+    }
+
+    return {"model": JEV_MODEL, "state": state, "questions": questions}
+
+
+def _typed_answer(answers: dict[str, Any], name: str, kind: str) -> dict[str, Any]:
+    answer = answers.get(name)
+    if not isinstance(answer, dict) or answer.get("type") != kind:
+        raise ValueError(f"Jev answer {name!r} missing or not type {kind!r}")
+    return answer
+
+
+def _choice_answer(
+    answers: dict[str, Any], name: str, allowed: set[str]
+) -> tuple[str, float]:
+    answer = _typed_answer(answers, name, "choice")
+    choice = answer.get("choice")
+    if choice not in allowed:
+        raise ValueError(f"Jev answer {name!r} returned unexpected choice {choice!r}")
+    return str(choice), float(answer.get("confidence") or 0.0)
+
+
+def _noul_answer(answers: dict[str, Any], name: str) -> tuple[bool, float]:
+    answer = _typed_answer(answers, name, "noul")
+    probability = float(answer.get("noul"))
+    return probability >= 0.5, probability
+
+
+def _score_answer(answers: dict[str, Any], name: str) -> tuple[float, float]:
+    answer = _typed_answer(answers, name, "score")
+    # Jev returns the expected rubric index (0.._SCORE_STEPS); scale to 0..100.
+    rubric = float(answer.get("score"))
+    value = max(0.0, min(rubric / _SCORE_STEPS, 1.0)) * 100.0
+    return round(value, 1), float(answer.get("confidence") or 0.0)
+
+
+def _verdict_from_answers(
+    gt: UnifiedPayload | None, answers: dict[str, Any]
+) -> JevVerdict:
+    """Map Jev's typed answers onto the stable ``JevVerdict`` contract."""
+    morphology, p_morphology = _choice_answer(
+        answers,
+        "flame_morphology",
+        {"spherical", "teardrop", "fragmented", "extinguished"},
+    )
+    profile, p_profile = _choice_answer(
+        answers,
+        "nasa_experiment_profile_match",
+        {"ACME", "SOFIE", "FLEX", "NONE"},
+    )
+    buoyant, _ = _noul_answer(answers, "buoyancy_driven_convection")
+    radiant, _ = _noul_answer(answers, "radiant_heat_loss_critical")
+    soot, p_soot = _score_answer(answers, "soot_volume_fraction_score")
+    stability, p_stability = _score_answer(answers, "stability_score")
+    delta, p_delta = _score_answer(answers, "delta_score")
+
+    confidences = [p_morphology, p_profile, p_soot, p_stability, p_delta]
+    confidence = max(0.0, min(sum(confidences) / len(confidences), 1.0))
+
+    if gt is not None and gt.test_point:
+        identity_note = f" NASA GT: {gt.investigation or 'PSI'} {gt.test_point}."
+    elif gt is None:
+        identity_note = " No matching PSI fuel/gravity class; comparison withheld."
+    else:
+        identity_note = ""
+
+    notes = (
+        f"Jev {JEV_MODEL} decision verdict. Morphology {morphology} "
+        f"({p_morphology:.0%}); profile {profile} ({p_profile:.0%}); delta "
+        f"{delta:.0f}/100, stability {stability:.0f}/100. Buoyancy "
+        f"{'yes' if buoyant else 'no'}; radiant loss "
+        f"{'critical' if radiant else 'not critical'}.{identity_note}"
+    )[:280]
+
+    return JevVerdict(
+        flame_morphology=morphology,  # type: ignore[arg-type]
+        buoyancy_driven_convection=buoyant,
+        nasa_experiment_profile_match=profile,  # type: ignore[arg-type]
+        soot_volume_fraction_score=soot,
+        radiant_heat_loss_critical=radiant,
+        stability_score=stability,
+        delta_score=delta,
+        confidence_score=confidence,
+        engine="jev",
+        notes=notes,
     )
 
 
@@ -138,6 +342,29 @@ def _local_heuristic(
     )
 
 
+def _error_detail(exc: Exception) -> str:
+    """Extract NanoGPT's structured error instead of a bare HTTP status."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("code") or "request failed")
+            code = error.get("code")
+            detail = f"HTTP {response.status_code}: {message}"
+            if code and str(code) not in message:
+                detail += f" [{code}]"
+            return detail
+        text = " ".join((response.text or "").split())
+        if text:
+            return f"HTTP {response.status_code}: {text[:160]}"
+    message = " ".join(f"{type(exc).__name__}: {exc}".split())
+    return message[:160]
+
+
 async def triage_pair(
     gt: UnifiedPayload | None,
     sim: UnifiedPayload,
@@ -145,7 +372,6 @@ async def triage_pair(
 ) -> JevVerdict:
     """Triage one ground-truth/sim pair through Jev (or local fallback)."""
     key = _api_key()
-    prompt = _triage_prompt(gt, sim)
     if not key:
         return _local_heuristic(gt, sim)
 
@@ -156,30 +382,17 @@ async def triage_pair(
         )
     assert client is not None
 
-    async def _call() -> dict[str, Any]:
-        assert client is not None
-        resp = await client.post(
-            "/chat/completions",
-            json={
-                "model": JEV_MODEL,
-                "messages": [
-                    {"role": "system", "content": "Output strict JSON only."},
-                    {"role": "user", "content": prompt},
-                ],
-                "response_format": {"type": "json_object"},
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        return json.loads(content)
-
     try:
-        data = await _call()
-        return JevVerdict.model_validate({**data, "engine": "jev"})
+        resp = await client.post("/decisions", json=_decision_request(gt, sim))
+        resp.raise_for_status()
+        payload = resp.json()
+        answers = payload.get("answers") if isinstance(payload, dict) else None
+        if not isinstance(answers, dict):
+            raise ValueError("Jev response has no answers object")
+        return _verdict_from_answers(gt, answers)
     except Exception as exc:
         # Keep the failure visible instead of reporting it as a missing key.
-        detail = " ".join(f"{type(exc).__name__}: {exc}".split())[:120]
-        return _local_heuristic(gt, sim, f"NanoGPT call failed — {detail}")
+        return _local_heuristic(gt, sim, f"Jev decision call failed — {_error_detail(exc)}")
     finally:
         if own_client and client is not None:
             await client.aclose()
