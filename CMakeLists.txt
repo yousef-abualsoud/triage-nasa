@@ -4,11 +4,12 @@ project(triage-nasa CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Performance flags per the dossier: -O3 -ffast-math -march=native
+# Performance flags. -ffast-math is intentionally omitted: the solver checks
+# NaN/Inf and positivity in the chemistry/density updates (see R14/R15).
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
-add_compile_options(-O3 -ffast-math -march=native)
+add_compile_options(-O3 -march=native)
 
 # ---------------------------------------------------------------------------
 # The C++ solver slots in later: targets are defined only when its sources
@@ -16,9 +17,8 @@ add_compile_options(-O3 -ffast-math -march=native)
 # (src/python/sim_bridge.py), and this configure step is a clean no-op.
 # ---------------------------------------------------------------------------
 set(SOLVER_SOURCES
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/physics_solver.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/adi_solver.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/thomas_algorithm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/thomas.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/cpp/solver_core.cpp
 )
 
 set(SOLVER_SOURCES_EXIST TRUE)

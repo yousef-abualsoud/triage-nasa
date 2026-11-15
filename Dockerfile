@@ -13,9 +13,9 @@ WORKDIR /solver
 COPY CMakeLists.txt ./
 COPY src/cpp/ ./src/cpp/
 RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -Dpybind11_DIR="$(python -m pybind11 --cmakedir)" \
  && cmake --build build -j \
- && mv build/triage_core*.so /usr/local/lib/ \
- || echo "C++ solver unavailable; backend will use the NumPy reference mock"
+ && mv build/triage_core*.so /usr/local/lib/
 
 # ---------- Stage 2: Python backend deps ----------
 FROM base AS backend

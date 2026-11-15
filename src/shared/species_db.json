@@ -83,6 +83,138 @@
       "soot_tendency_index": 0.0
     }
   },
+  "species": {
+    "CH4": {
+      "name": "Methane",
+      "formula": "CH4",
+      "molecular_weight_kg_per_mol": 0.016043,
+      "heat_of_formation_j_per_mol": -74870.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [5.14987613, -1.36709788e-2, 4.91800599e-5, -4.84743026e-8, 1.66693956e-11, -1.02466476e4, -4.64130376],
+        "high": [7.48514950e-2, 1.33909467e-2, -5.73285809e-6, 1.22292535e-9, -1.01815230e-13, -9.46834459e3, 1.84373180e1]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.034, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 1.1e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 2.2e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "C2H4": {
+      "name": "Ethylene",
+      "formula": "C2H4",
+      "molecular_weight_kg_per_mol": 0.028054,
+      "heat_of_formation_j_per_mol": 52280.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [3.95920148, -7.57052247e-3, 5.70990292e-5, -6.91588753e-8, 2.69884373e-11, 5.08977593e3, 4.09733096],
+        "high": [2.03611116, 1.46454151e-2, -6.71077915e-6, 1.47222923e-9, -1.25706061e-13, 4.93988614e3, 1.03053693e1]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.032, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 1.03e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 1.6e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "C3H8": {
+      "name": "Propane",
+      "formula": "C3H8",
+      "molecular_weight_kg_per_mol": 0.044097,
+      "heat_of_formation_j_per_mol": -104200.0,
+      "cp_model": "constant",
+      "cp_j_per_kgk": 1680.0,
+      "thermal_conductivity": {"ref_w_per_mk": 0.018, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 8.2e-6, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 1.3e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "H2": {
+      "name": "Hydrogen",
+      "formula": "H2",
+      "molecular_weight_kg_per_mol": 0.002016,
+      "heat_of_formation_j_per_mol": 0.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [2.34433112, 7.98052075e-3, -1.94781510e-5, 2.01572094e-8, -7.37611761e-12, -9.17935173e2, 6.83010238e-1],
+        "high": [3.33727920, -4.94024731e-5, 4.99456778e-7, -1.79566394e-10, 2.00255376e-14, -9.50158922e2, -3.20502331]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.18, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 0.9e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 7.5e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "O2": {
+      "name": "Oxygen",
+      "formula": "O2",
+      "molecular_weight_kg_per_mol": 0.031998,
+      "heat_of_formation_j_per_mol": 0.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [3.78245636, -2.99673416e-3, 9.84730201e-6, -9.68129509e-9, 3.24372837e-12, -1.06394356e3, 3.65767573],
+        "high": [3.28253784, 1.48308754e-3, -7.57966669e-7, 2.09470555e-10, -2.16717794e-14, -1.08845772e3, 5.45323129]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.026, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 2.0e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 2.0e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "N2": {
+      "name": "Nitrogen",
+      "formula": "N2",
+      "molecular_weight_kg_per_mol": 0.028014,
+      "heat_of_formation_j_per_mol": 0.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [3.298677, 1.40824040e-3, -3.96322200e-6, 5.64151500e-9, -2.44485400e-12, -1.02089990e3, 3.95037200],
+        "high": [2.926640, 1.48797680e-3, -5.68476000e-7, 1.00970380e-10, -6.75335100e-15, -9.22797700e2, 5.98052800]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.026, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 1.8e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 2.0e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "CO2": {
+      "name": "Carbon Dioxide",
+      "formula": "CO2",
+      "molecular_weight_kg_per_mol": 0.044009,
+      "heat_of_formation_j_per_mol": -393520.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [2.35677352, 8.98459677e-3, -7.12356269e-6, 2.45919022e-9, -1.43699548e-13, -4.83719697e4, 9.90105222],
+        "high": [3.85746029, 4.41437026e-3, -2.21481404e-6, 5.23490188e-10, -4.72084164e-14, -4.87591660e4, 2.27163806]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.016, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 1.5e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 1.6e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    },
+    "H2O": {
+      "name": "Water Vapor",
+      "formula": "H2O",
+      "molecular_weight_kg_per_mol": 0.018015,
+      "heat_of_formation_j_per_mol": -241820.0,
+      "cp_model": "nasa7",
+      "nasa7": {
+        "t_low": 300.0,
+        "t_mid": 1000.0,
+        "t_high": 5000.0,
+        "low": [4.19864056, -2.03643410e-3, 6.52040211e-6, -5.48797062e-9, 1.77197817e-12, -3.02937267e4, -8.49032208e-1],
+        "high": [3.03399249, 2.17691804e-3, -1.64072518e-7, -9.70419870e-11, 1.68200992e-14, -3.00042971e4, 4.96677010]
+      },
+      "thermal_conductivity": {"ref_w_per_mk": 0.019, "t_ref_k": 300.0, "exponent": 0.7},
+      "viscosity": {"ref_pa_s": 1.0e-5, "t_ref_k": 300.0, "exponent": 0.7},
+      "diffusivity": {"ref_m2_per_s": 2.5e-5, "t_ref_k": 300.0, "exponent": 1.75}
+    }
+  },
   "oxidizer_reference": {
     "air_o2_mole_fraction": 0.21,
     "air_n2_mole_fraction": 0.79,

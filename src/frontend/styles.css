@@ -177,6 +177,22 @@ body {
   height: clamp(150px, 22vh, 290px);
 }
 
+/* The 2D heatmap otherwise expands to the rail width and pushes Jev below
+   the fold; constrain it to the same height budget as the 3D canvas. */
+.layout-visuals .flame-canvas-wrap {
+  height: clamp(150px, 22vh, 290px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.layout-visuals .flame-canvas-wrap canvas {
+  width: auto !important;
+  height: 100% !important;
+  max-width: 100%;
+  image-rendering: pixelated;
+}
+
 /* Orbit/zoom hint is redundant here — the rail is height-budgeted. */
 .layout-visuals .flame-hint {
   display: none;

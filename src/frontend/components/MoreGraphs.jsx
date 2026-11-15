@@ -15,11 +15,18 @@ export default function MoreGraphs({
   ambientK,
   finalData,
   groundTruth,
+  radialFrames = [],
+  finalRadial = null,
 }) {
   return (
     <div className="graphs-grid">
       <div className="graphs-wide">
         <BurnCurveOverlay simHistory={history} groundTruth={groundTruth} />
+      </div>
+      <SolverRadialFields finalRadial={finalRadial} />
+      <SpeciesProfile finalRadial={finalRadial} />
+      <div className="graphs-wide">
+        <RadialTimeHeatmap radialFrames={radialFrames} />
       </div>
       <HistoryGraph
         history={history}
@@ -239,6 +246,307 @@ function RadialProfile({ frame, frameIndex, ambientK }) {
   );
 }
 
+function SolverRadialFields({ finalRadial }) {
+  const svgRef = useRef(null);
+
+  useEffect(() => {
+    if (!finalRadial?.r_m?.length) return;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    const W = 430;
+    const H = 200;
+    const M = { top: 20, right: 62, bottom: 34, left: 48 };
+    const r = finalRadial.r_m.map((v) => v * 1000);
+    const T = finalRadial.temperature_k;
+    const q = finalRadial.heat_release_w_m3;
+    const x = d3.scaleLinear().domain(d3.extent(r)).range([M.left, W - M.right]);
+    const y = d3
+      .scaleLinear()
+      .domain([Math.min(d3.min(T), 250) * 0.95, d3.max(T) * 1.05])
+      .nice()
+      .range([H - M.bottom, M.top]);
+    const yq = d3
+      .scaleSymlog()
+      .domain([0, Math.max(d3.max(q) || 1, 1)])
+      .range([H - M.bottom, M.top]);
+
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
+    svg
+      .append("g")
+      .attr("transform", `translate(0,${H - M.bottom})`)
+      .call(d3.axisBottom(x).ticks(5));
+    svg
+      .append("g")
+      .attr("transform", `translate(${M.left},0)`)
+      .call(d3.axisLeft(y).ticks(5));
+    svg
+      .append("g")
+      .attr("transform", `translate(${W - M.right},0)`)
+      .call(d3.axisRight(yq).ticks(3, ".1s"));
+
+    const lineT = d3
+      .line()
+      .x((_, i) => x(r[i]))
+      .y((v) => y(v))
+      .curve(d3.curveMonotoneX);
+    svg
+      .append("path")
+      .datum(T)
+      .attr("fill", "none")
+      .attr("stroke", "#ff7043")
+      .attr("stroke-width", 2)
+      .attr("d", lineT);
+
+    const lineQ = d3
+      .line()
+      .x((_, i) => x(r[i]))
+      .y((v) => yq(v))
+      .curve(d3.curveMonotoneX);
+    svg
+      .append("path")
+      .datum(q)
+      .attr("fill", "none")
+      .attr("stroke", "#66bb6a")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", "4 3")
+      .attr("d", lineQ);
+
+    svg
+      .append("text")
+      .attr("x", W / 2)
+      .attr("y", H - 4)
+      .attr("class", "axis-label")
+      .attr("text-anchor", "middle")
+      .text("radius (mm)");
+    svg
+      .append("text")
+      .attr("x", 12)
+      .attr("y", M.top - 8)
+      .attr("class", "axis-label")
+      .text("T (K)");
+  }, [finalRadial]);
+
+  return (
+    <div className="panel mini-graph-panel">
+      <div className="panel-head">
+        <h2>Solver Radial Fields</h2>
+        <span className="legend">
+          <i className="sw" style={{ background: "#ff7043" }} /> T (left)
+          <i className="sw" style={{ background: "#66bb6a" }} /> q̇ (right)
+        </span>
+      </div>
+      <svg
+        ref={svgRef}
+        className="burn-svg"
+        role="img"
+        aria-label="Radial temperature and heat-release profiles"
+      />
+      {!finalRadial?.r_m?.length && (
+        <p className="muted small">Run a simulation to see the solver radial fields.</p>
+      )}
+    </div>
+  );
+}
+
+function SpeciesProfile({ finalRadial }) {
+  const svgRef = useRef(null);
+
+  useEffect(() => {
+    if (!finalRadial?.mass_fractions) return;
+    const keys = Object.keys(finalRadial.mass_fractions);
+    if (!keys.length) return;
+    const fuelKey = keys[0];
+    const o2Key = keys.find((k) => k === "O2");
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    const W = 430;
+    const H = 200;
+    const M = { top: 20, right: 16, bottom: 34, left: 52 };
+    const r = finalRadial.r_m.map((v) => v * 1000);
+    const series = [
+      { key: fuelKey, label: fuelKey, color: "#ffb74d", values: finalRadial.mass_fractions[fuelKey] },
+      ...(o2Key
+        ? [{ key: o2Key, label: o2Key, color: "#4dd0e1", values: finalRadial.mass_fractions[o2Key] }]
+        : []),
+    ];
+    const x = d3.scaleLinear().domain(d3.extent(r)).range([M.left, W - M.right]);
+    const ymax = Math.max(0.05, d3.max(series, (s) => d3.max(s.values)) * 1.1);
+    const y = d3.scaleLinear().domain([0, ymax]).range([H - M.bottom, M.top]);
+
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
+    svg
+      .append("g")
+      .attr("transform", `translate(0,${H - M.bottom})`)
+      .call(d3.axisBottom(x).ticks(5));
+    svg
+      .append("g")
+      .attr("transform", `translate(${M.left},0)`)
+      .call(d3.axisLeft(y).ticks(5));
+
+    series.forEach((s) => {
+      const line = d3
+        .line()
+        .x((_, i) => x(r[i]))
+        .y((v) => y(v))
+        .curve(d3.curveMonotoneX);
+      svg
+        .append("path")
+        .datum(s.values)
+        .attr("fill", "none")
+        .attr("stroke", s.color)
+        .attr("stroke-width", 2)
+        .attr("d", line);
+    });
+
+    svg
+      .append("text")
+      .attr("x", W / 2)
+      .attr("y", H - 4)
+      .attr("class", "axis-label")
+      .attr("text-anchor", "middle")
+      .text("radius (mm)");
+    svg
+      .append("text")
+      .attr("x", 12)
+      .attr("y", M.top - 8)
+      .attr("class", "axis-label")
+      .text("mass fraction");
+  }, [finalRadial]);
+
+  const keys = finalRadial?.mass_fractions ? Object.keys(finalRadial.mass_fractions) : [];
+  const o2Key = keys.find((k) => k === "O2");
+  return (
+    <div className="panel mini-graph-panel">
+      <div className="panel-head">
+        <h2>Species Profiles</h2>
+        <span className="legend">
+          {keys.length > 0 && (
+            <>
+              <i className="sw" style={{ background: "#ffb74d" }} /> {keys[0]}
+            </>
+          )}
+          {o2Key && (
+            <>
+              <i className="sw" style={{ background: "#4dd0e1" }} /> {o2Key}
+            </>
+          )}
+        </span>
+      </div>
+      <svg
+        ref={svgRef}
+        className="burn-svg"
+        role="img"
+        aria-label="Fuel and oxygen mass-fraction profiles"
+      />
+      {!keys.length && (
+        <p className="muted small">Run a simulation to see species profiles.</p>
+      )}
+    </div>
+  );
+}
+
+function RadialTimeHeatmap({ radialFrames }) {
+  const svgRef = useRef(null);
+
+  useEffect(() => {
+    if (!radialFrames?.length) return;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    const W = 880;
+    const H = 220;
+    const M = { top: 18, right: 82, bottom: 36, left: 52 };
+    const r = radialFrames[0].r_m.map((v) => v * 1000);
+    const times = radialFrames.map((f) => f.t_s);
+    const allT = radialFrames.flatMap((f) => f.temperature_k);
+    const x = d3.scaleLinear().domain([r[0], r[r.length - 1]]).range([M.left, W - M.right]);
+    const y = d3.scaleLinear().domain([0, d3.max(times) || 1]).range([H - M.bottom, M.top]);
+    const color = d3
+      .scaleSequential(d3.interpolateInferno)
+      .domain([d3.min(allT) ?? 300, d3.max(allT) ?? 3000]);
+    const cw = (W - M.left - M.right) / r.length;
+    const ch = (H - M.top - M.bottom) / radialFrames.length;
+
+    svg.attr("viewBox", `0 0 ${W} ${H}`);
+    radialFrames.forEach((f, ti) => {
+      f.temperature_k.forEach((temp, ri) => {
+        svg
+          .append("rect")
+          .attr("x", x(r[ri]) - cw / 2)
+          .attr("y", y(f.t_s) - ch / 2)
+          .attr("width", cw + 0.4)
+          .attr("height", ch + 0.4)
+          .attr("fill", color(temp));
+      });
+    });
+
+    svg
+      .append("g")
+      .attr("transform", `translate(0,${H - M.bottom})`)
+      .call(d3.axisBottom(x).ticks(6));
+    svg
+      .append("g")
+      .attr("transform", `translate(${M.left},0)`)
+      .call(d3.axisLeft(y).ticks(5));
+
+    const defs = svg.append("defs");
+    const grad = defs
+      .append("linearGradient")
+      .attr("id", "radial-time-color")
+      .attr("x1", "0%")
+      .attr("x2", "0%")
+      .attr("y1", "100%")
+      .attr("y2", "0%");
+    d3.range(0, 1.001, 0.1).forEach((p) => {
+      grad
+        .append("stop")
+        .attr("offset", `${p * 100}%`)
+        .attr("stop-color", color(color.domain()[0] + p * (color.domain()[1] - color.domain()[0])));
+    });
+    svg
+      .append("rect")
+      .attr("x", W - M.right + 18)
+      .attr("y", M.top)
+      .attr("width", 14)
+      .attr("height", H - M.top - M.bottom)
+      .attr("fill", "url(#radial-time-color)");
+
+    svg
+      .append("text")
+      .attr("x", W / 2)
+      .attr("y", H - 4)
+      .attr("class", "axis-label")
+      .attr("text-anchor", "middle")
+      .text("radius (mm)");
+    svg
+      .append("text")
+      .attr("x", 12)
+      .attr("y", M.top - 6)
+      .attr("class", "axis-label")
+      .text("t (s)");
+  }, [radialFrames]);
+
+  return (
+    <div className="panel mini-graph-panel">
+      <div className="panel-head">
+        <h2>Temperature Field T(r, t)</h2>
+        <span className="muted small">1D radial solver snapshots</span>
+      </div>
+      <svg
+        ref={svgRef}
+        className="burn-svg"
+        role="img"
+        aria-label="Radial temperature field over time"
+      />
+      {!radialFrames?.length && (
+        <p className="muted small">Run a simulation to see the radial time history.</p>
+      )}
+    </div>
+  );
+}
+
 function Suggestions({ history, finalData }) {
   const items = React.useMemo(() => {
     if (!history?.length) return [];
@@ -277,6 +585,17 @@ function Suggestions({ history, finalData }) {
     if (peak > 1800) {
       out.push(
         `Peak ${Math.round(peak)} K exceeds typical radiant-loss thresholds — radiant heat loss is critical for cabin materials (Jev flag set accordingly).`
+      );
+    }
+    const diag = finalData?.diagnostics;
+    if (diag && Math.abs(Number(diag.mass_relative_error ?? 0)) > 0.05) {
+      out.push(
+        `Solver diagnostic: mass budget drift ${(Number(diag.mass_relative_error) * 100).toFixed(1)}% — this follows the document's continuity/density formulation and is tracked for revision (R1/R14).`
+      );
+    }
+    if (diag?.substeps_capped) {
+      out.push(
+        "Adaptive substepping hit its per-step cap: reduce Δt or Nᵣ below the reported limit for a resolved run."
       );
     }
     return out;

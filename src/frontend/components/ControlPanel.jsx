@@ -26,6 +26,7 @@ export default function ControlPanel({
       key: "",
       data: {
         name: "",
+        formula: "",
         pre_exponential_factor: 1e8,
         activation_energy_j_per_mol: 1.4e5,
         lower_heating_value_j_per_kg: 5e7,
@@ -161,6 +162,55 @@ export default function ControlPanel({
         </>
       )}
 
+      <p className="muted small solver-note">
+        1D spherical solver — transport is radial (r_min … r_max); the 2D/3D
+        views paint and revolve that radial field.
+      </p>
+
+      <label className="field">
+        <span>Mixing mode</span>
+        <select
+          value={config.mixing_mode}
+          onChange={(e) => update("mixing_mode", e.target.value)}
+        >
+          <option value="premixed">Premixed fuel + oxidizer</option>
+          <option value="nonpremixed">Non-premixed (fuel core / oxidizer shell)</option>
+        </select>
+      </label>
+
+      <Slider
+        label="Equivalence ratio φ"
+        value={config.equivalence_ratio}
+        min={0.2}
+        max={5}
+        step={0.05}
+        onChange={(v) => update("equivalence_ratio", v)}
+        unit=""
+        digits={2}
+      />
+
+      <label className="field">
+        <span>Oxidizer</span>
+        <select
+          value={config.oxidizer}
+          onChange={(e) => update("oxidizer", e.target.value)}
+        >
+          <option value="air">Air (O₂ / N₂)</option>
+          <option value="O2">Pure oxygen</option>
+        </select>
+      </label>
+
+      <Slider
+        label="Mass flow rate ṁ"
+        value={config.mass_flow_kg_s}
+        min={0}
+        max={0.001}
+        step={0.0000001}
+        onChange={(v) => update("mass_flow_kg_s", v)}
+        unit="kg/s"
+        digits={7}
+      />
+
       <label className="field">
         <span>Ignition method</span>
         <select
@@ -189,15 +239,10 @@ export default function ControlPanel({
         </p>
       )}
 
-      <Slider
-        label="Inlet velocity (Saffire)"
-        value={config.inlet_velocity_ms}
-        min={0}
-        max={2}
-        step={0.05}
-        onChange={(v) => update("inlet_velocity_ms", v)}
-        unit="m/s"
-      />
+      <p className="muted small">
+        Run length = {Number(config.iteration_count)} × {Number(config.dt_s)} s
+        = {(Number(config.iteration_count) * Number(config.dt_s)).toFixed(4)} s.
+      </p>
 
       <div className="btn-row">
         <button className="action-btn primary" onClick={onRun} disabled={busy}>
@@ -212,7 +257,7 @@ export default function ControlPanel({
       >
         <summary>Advanced numerical settings</summary>
         <Slider
-          label="Grid nx"
+          label="Display grid nx"
           value={config.nx}
           min={16}
           max={512}
@@ -222,7 +267,7 @@ export default function ControlPanel({
           digits={0}
         />
         <Slider
-          label="Grid ny"
+          label="Display grid ny"
           value={config.ny}
           min={16}
           max={512}
@@ -230,6 +275,36 @@ export default function ControlPanel({
           onChange={(v) => update("ny", Math.round(v))}
           unit="cells"
           digits={0}
+        />
+        <Slider
+          label="Radial cells Nᵣ"
+          value={config.Nr}
+          min={32}
+          max={1024}
+          step={32}
+          onChange={(v) => update("Nr", Math.round(v))}
+          unit="cells"
+          digits={0}
+        />
+        <Slider
+          label="Inner radius r_min"
+          value={config.r_min_m}
+          min={0}
+          max={0.02}
+          step={0.0001}
+          onChange={(v) => update("r_min_m", v)}
+          unit="m"
+          digits={4}
+        />
+        <Slider
+          label="Outer radius r_max"
+          value={config.r_max_m}
+          min={0.01}
+          max={0.2}
+          step={0.001}
+          onChange={(v) => update("r_max_m", v)}
+          unit="m"
+          digits={3}
         />
         <Slider
           label="Step size Δt"
@@ -261,23 +336,35 @@ export default function ControlPanel({
           digits={0}
         />
         <Slider
-          label="Domain length"
-          value={config.domain_length_m}
-          min={0.01}
-          max={0.5}
-          step={0.005}
-          onChange={(v) => update("domain_length_m", v)}
-          unit="m"
+          label="Inlet temperature"
+          value={config.inlet_temperature_k}
+          min={200}
+          max={1000}
+          step={5}
+          onChange={(v) => update("inlet_temperature_k", v)}
+          unit="K"
+          digits={0}
         />
-        <Slider
-          label="Domain height"
-          value={config.domain_height_m}
-          min={0.01}
-          max={0.5}
-          step={0.005}
-          onChange={(v) => update("domain_height_m", v)}
-          unit="m"
-        />
+        <label className="field">
+          <span>Inner boundary</span>
+          <select
+            value={config.inner_bc}
+            onChange={(e) => update("inner_bc", e.target.value)}
+          >
+            <option value="fixed">Fixed inlet composition/T</option>
+            <option value="zero_gradient">Zero gradient</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Outer boundary</span>
+          <select
+            value={config.outer_bc}
+            onChange={(e) => update("outer_bc", e.target.value)}
+          >
+            <option value="fixed">Fixed oxidizer composition/T</option>
+            <option value="zero_gradient">Zero gradient</option>
+          </select>
+        </label>
         <Slider
           label="Ignition region radius"
           value={config.ignition_region_m}
@@ -288,12 +375,19 @@ export default function ControlPanel({
           unit="m"
         />
         <p className="muted small">
-          Wall thermal condition was removed from the UI per spec: the solver
-          runs adiabatic walls and the C++ engine will match this seam.
+          The radial domain is defined by r_min/r_max; nx × ny only controls
+          the painted display grid. The 3D view revolves the centered radial
+          field into a sphere.
         </p>
         <p className="muted small">
-          Arrhenius overrides (A, Ea) live in the fuel presets — create or
-          edit a custom preset to change the database variables.
+          Radial g_r is derived from the gravity mode (with an optional API
+          override). Arrhenius A/Ea live in the fuel presets; the reaction and
+          species data come from the shared mechanism databases.
+        </p>
+        <p className="muted small">
+          Initial and inlet compositions default to the premixed or fuel-core /
+          oxidizer-shell setup. Custom composition and mechanism editors are a
+          later milestone (internal revision item R16).
         </p>
       </details>
 
@@ -434,6 +528,15 @@ function FuelModal({ modal, fields, fuels, onClose, onSave }) {
             value={data.name ?? ""}
             onChange={(e) => set("name", e.target.value)}
             placeholder="e.g. Ethane"
+          />
+        </label>
+        <label className="field">
+          <span>Chemical formula (C/H/O/N)</span>
+          <input
+            className="text-input"
+            value={data.formula ?? ""}
+            onChange={(e) => set("formula", e.target.value)}
+            placeholder="e.g. C2H6"
           />
         </label>
         {Object.entries(fieldNames).map(([f, [label, unit]]) => {

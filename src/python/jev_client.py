@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from schema import JevVerdict, UnifiedPayload  # noqa: E402
+from schema import CONSTANTS, JevVerdict, UnifiedPayload  # noqa: E402
 
 NANOGPT_BASE_URL = os.environ.get("NANOGPT_BASE_URL", "https://nano-gpt.com/api/v1")
 JEV_MODEL = "typesafe/jev-latest"
@@ -47,20 +47,25 @@ def _triage_prompt(gt: UnifiedPayload, sim: UnifiedPayload) -> str:
 
 
 def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
-    """Deterministic offline triage used when no NanoGPT key is present."""
-    g_sim = 9.81 if sim.gravity_mode == "earth_1g" else 0.0
+    """Deterministic offline triage used when no NanoGPT key is present.
+
+    The real solver is 1D spherical (R12): it cannot produce a transverse
+    buoyant teardrop, so the offline heuristic never claims one. Gravity modes
+    are reported as an effective radial acceleration, and the notes make the
+    limitation explicit for the Tier-2 model.
+    """
+    mode = CONSTANTS["gravity_modes"].get(sim.gravity_mode, {})
+    g_sim = float(mode.get("g_m_per_s2", 0.0))
     buoyant = g_sim > 0.1 and (sim.max_radius_mm or 0.0) > 1.0
     if (sim.peak_temp_k or 0.0) < 500.0:
         morph = "extinguished"
-    elif buoyant:
-        morph = "teardrop"
     elif (sim.inlet_velocity_ms or 0.0) > 0.3:
         morph = "fragmented"
     else:
         morph = "spherical"
 
     profile = "NONE"
-    eid = (getattr(gt, "experiment_id", None) or "")
+    eid = (gt.experiment_id or "")
     if isinstance(eid, str):
         profile = "ACME" if "sflame" in eid.lower() or "coflow" in eid.lower() else (
             "SOFIE" if "saffire" in eid.lower() else "NONE"
@@ -87,7 +92,10 @@ def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
         stability_score=float(stability),
         delta_score=float(delta_score),
         confidence_score=0.55 if delta_score < 60 else 0.4,
-        notes="Local heuristic fallback (no NanoGPT key configured).",
+        notes=(
+            "Local heuristic fallback (no NanoGPT key configured); 1D spherical "
+            "solver, gravity is an effective radial term (see R2/R12)."
+        )[:280],
     )
 
 

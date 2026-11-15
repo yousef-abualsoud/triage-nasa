@@ -53,24 +53,39 @@ RECENT_CAP = 40  # frames kept per client stream to bound memory
 _RUN_CACHE: dict[str, tuple[SimResult, UnifiedPayload, Any]] = {}
 
 
-def _slim_frames(res: SimResult) -> list[list[list[float]]]:
-    """Cap streamed frames so a 20s sweep cannot flood the browser."""
-    if len(res.frames) <= RECENT_CAP:
-        return res.frames
-    step = len(res.frames) / RECENT_CAP
-    idx = sorted({int(i * step) for i in range(RECENT_CAP)} | {len(res.frames) - 1})
-    return [res.frames[i] for i in idx]
+def _slim_indices(n: int) -> list[int]:
+    """Indices sampled across the whole run, endpoints included."""
+    if n <= RECENT_CAP:
+        return list(range(n))
+    return sorted({int(round(i * (n - 1) / (RECENT_CAP - 1))) for i in range(RECENT_CAP)})
+
+
+def _slim_result(
+    res: SimResult,
+) -> tuple[list[list[list[float]]], list[float], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Cap streamed frames while keeping frames/times/history/radial aligned."""
+    idx = _slim_indices(len(res.frames))
+    frames = [res.frames[i] for i in idx]
+    times = [res.times[i] for i in idx]
+    history = [res.history[i] for i in idx]
+    if res.radial_frames and len(res.radial_frames) == len(res.frames):
+        radial = [res.radial_frames[i] for i in idx]
+    else:
+        radial = res.radial_frames[-RECENT_CAP:]
+    return frames, times, history, radial
 
 
 def _sim_result_message(res: SimResult) -> dict[str, Any]:
+    frames, times, history, radial_frames = _slim_result(res)
     return {
         "kind": "sim_result",
         "run_id": res.config.cache_key(),
         "solver": res.solver,
         "config": res.config.model_dump(),
-        "times": res.times[-RECENT_CAP:],
-        "frames": _slim_frames(res),
-        "history": res.history[-RECENT_CAP:],
+        "times": times,
+        "frames": frames,
+        "history": history,
+        "radial_frames": radial_frames,
         "final": res.final,
         "unified": res.to_unified().model_dump(),
     }
@@ -86,6 +101,7 @@ async def _handle_config(config: dict[str, Any]) -> dict[str, Any]:
 SWEEP_PARAMS = {
     "oxygen_pct", "ambient_pressure_bar", "inlet_velocity_ms", "ignition_energy_j",
     "iteration_count", "ambient_temperature_k", "custom_gravity_m_per_s2",
+    "equivalence_ratio", "mass_flow_kg_s", "r_max_m", "Nr",
 }
 
 
@@ -127,11 +143,15 @@ async def _nearest_ground_truth(sim: UnifiedPayload) -> UnifiedPayload:
     gts = load_ground_truth()
     best: tuple[float, UnifiedPayload] | None = None
     for entry in gts:
-        p = entry["payload"]
+        p = dict(entry["payload"])
         if p.get("fuel") != sim.fuel:
             continue
         if p.get("gravity_mode") != sim.gravity_mode:
             continue
+        # PSI CSV/JSON entries may carry the experiment id at the envelope level;
+        # carry it into the compact payload so tier-1 profile matching can use it.
+        if entry.get("experiment_id") and not p.get("experiment_id"):
+            p["experiment_id"] = entry["experiment_id"]
         dist = (
             abs(float(p.get("oxygen_pct", 21.0)) - sim.oxygen_pct) / 40.0
             + abs(float(p.get("ambient_pressure_bar", 1.0)) - sim.ambient_pressure_bar) / 2.0
@@ -194,12 +214,11 @@ async def _handle_tier2(run_id: str) -> dict[str, Any]:
     if run_id not in _RUN_CACHE:
         raise ValueError(f"unknown run_id {run_id!r}")
     res, sim_payload, verdict = _RUN_CACHE[run_id]
-    if verdict is None:
-        msg = await _handle_triage(run_id)
-        verdict = type(verdict).model_validate(msg["verdict"]) if verdict is not None else None
     gt = await _nearest_ground_truth(sim_payload)
-    v = verdict or (await triage_pair(gt, sim_payload))
-    report_md = await synthesize(sim_payload, gt, v)
+    if verdict is None:
+        verdict = await triage_pair(gt, sim_payload)
+        _RUN_CACHE[run_id] = (res, sim_payload, verdict)
+    report_md = await synthesize(sim_payload, gt, verdict)
     return {"kind": "tier2_report", "run_id": run_id, "markdown": report_md, "azure": azure_configured()}
 
 
@@ -245,7 +264,9 @@ async def _serve(ws) -> None:
 async def main() -> None:
     async with websockets.serve(_serve, HOST, PORT, max_size=64 * 1024 * 1024):
         print(f"[server] T.R.I.A.G.E. backend on ws://{HOST}:{PORT}")
-        print("[server] solver:", "triage_core (C++)" if _RUN_CACHE is not None else "?")
+        from sim_bridge import _available_solver
+
+        print("[server] solver:", _available_solver())
         await asyncio.Future()  # run forever
 
 

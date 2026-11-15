@@ -4,7 +4,8 @@ import * as d3 from "d3";
 /**
  * 2D spatial temperature heatmap with a frame scrubber.
  * Renders the [ny][nx] Kelvin field from the solver via canvas + d3 scales.
- * Zero-G: spherical diffusion flame. 1G: buoyant teardrop. Saffire: tilted.
+ * The solver is 1D spherical radial; this paints T(r) on a centered grid.
+ * Gravity modes are effective radial g_r values, not resolved teardrops (R12).
  */
 export default function FlameField2D({
   frame,
@@ -45,8 +46,8 @@ export default function FlameField2D({
     // Normalize color domain to this run's dynamic range for contrast.
     const scale = d3
       .scaleSequential()
-      .domain([ambientK, Math.min(max, 3200)])
-      .interpolator(d3.interpolateRgbBasis(["#02020f", "#1a237e", "#b71c1c", "#ff9800", "#ffe082", "#4dd0e1"]));
+      .domain([ambientK, Math.max(Math.min(max * 1.05, 4200), ambientK + 100)])
+      .interpolator(d3.interpolateRgbBasis(["#02020f", "#1a237e", "#b71c1c", "#ff9800", "#ffe082", "#ffffff"]));
     // Row 0 of the solver field is the physical bottom (y = -H/2); canvas
     // row 0 is the top, so source rows are mirrored onto dest rows.
     for (let j = 0; j < ny; j++) {
@@ -67,7 +68,7 @@ export default function FlameField2D({
   const modeLabel = {
     zero_g: "Zero-G — diffusion sphere",
     iss_micro_g: "ISS Micro-G — jitter",
-    earth_1g: "Earth 1G — buoyant teardrop",
+    earth_1g: "Earth 1G — radial g approximation",
     mars_g: "Mars 0.38G — partial gravity",
     moon_g: "Moon 0.165G — partial gravity",
   }[gravityMode] ?? gravityMode;

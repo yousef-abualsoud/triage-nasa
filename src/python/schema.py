@@ -7,21 +7,25 @@ Three representations of one reality, all sharing a compact JSON shape (<250 tok
   3. The unified payload sent to Jev triage (jev_client)
 
 Solver seam contract (binding for the real pybind11 module, to be implemented in src/cpp/):
-    triage_core.run_simulation(config: dict) -> dict
+    triage_core.run_simulation(config: dict, mechanism: dict) -> dict
         config keys = SimConfig.model_dump() with "fuel" resolved to a preset key
         from species_db.json or a persisted custom preset (data/custom_fuels.json).
+        mechanism = resolved species/reaction arrays from mechanism.mechanism_payload().
+        The physics core is a 1D spherical radial finite-volume model
+        (r_min_m..r_max_m, Nr cells) per Combustion_Solver_Architecture_English.docx.
         Returns:
-            frames: list[list[list[float]]]  # T field, row-major [ny][nx], Kelvin
+            frames: list[list[list[float]]]  # painted T field, row-major [ny][nx], Kelvin
             times:  list[float]              # seconds, len == len(frames)
             history: list[dict]             # per-saved-step scalars:
                 #   t_s, max_flame_radius_m, peak_temp_k, mean_temp_k,
                 #   fuel_burned_fraction, soot_index, buoyancy_ke
-            final: dict                       # scalars at t_end:
-                #   quenched (bool), quench_time_s (float|None),
-                #   peak_temp_k (float), max_flame_radius_m (float),
-                #   soot_volume_fraction (float), stability (float 0-100)
-When the real module lands, sim_bridge tries `import triage_core` and falls back to
-the NumPy reference mock in this package. All downstream code only ever talks to
+            final: dict                       # scalars at t_end + radial/diagnostics:
+                #   quenched, quench_time_s, peak_temp_k, max_flame_radius_m,
+                #   soot_volume_fraction, stability, radial, diagnostics
+            radial_frames: list[dict]         # optional coarse radial snapshots
+
+sim_bridge tries `import triage_core` and falls back to the NumPy reference
+implementation in src/python/solver1d/. All downstream code only ever talks to
 SimResult / SimConfig — never the .so directly.
 """
 
@@ -31,7 +35,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 SHARED_DIR = Path(__file__).resolve().parent.parent / "shared"
 CUSTOM_FUELS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "custom_fuels.json"
@@ -73,6 +77,27 @@ class SimConfig(BaseModel):
     inlet_velocity_ms: float = Field(0.0, ge=0.0, le=2.0)
     ignition_method: IgnitionMethod = "energy_deposition"
     ignition_energy_j: float = Field(2.0, ge=0.01, le=100.0)
+
+    # --- 1D spherical solver (document architecture) ---
+    geometry: Literal["spherical_1d"] = "spherical_1d"
+    r_min_m: float = Field(0.001, ge=0.0, description="Inner radial boundary (m)")
+    r_max_m: float = Field(0.04, gt=0.0, description="Outer radial boundary (m)")
+    Nr: int = Field(256, ge=16, le=2048, description="Radial solver cells")
+    mass_flow_kg_s: float = Field(0.0, ge=0.0, le=1.0, description="Inlet mass flow rate (kg/s)")
+    radial_gravity_m_per_s2: Optional[float] = Field(
+        None, ge=-50.0, le=50.0, description="Effective radial g_r; defaults from gravity_mode"
+    )
+    t_end_s: Optional[float] = Field(None, gt=0.0, description="Simulation end time; derives iteration_count")
+    mixing_mode: Literal["premixed", "nonpremixed"] = "premixed"
+    equivalence_ratio: float = Field(1.0, ge=0.2, le=5.0)
+    oxidizer: Literal["air", "O2"] = "air"
+    reaction: Optional[str] = Field(None, description="Reaction key; defaults to <fuel>_O2")
+    initial_species_mass_fractions: Optional[dict[str, float]] = None
+    fuel_inlet_composition: Optional[dict[str, float]] = None
+    oxidizer_inlet_composition: Optional[dict[str, float]] = None
+    inlet_temperature_k: Optional[float] = Field(None, ge=200.0, le=2000.0)
+    inner_bc: Literal["fixed", "zero_gradient"] = "fixed"
+    outer_bc: Literal["fixed", "zero_gradient"] = "fixed"
 
     # --- Advanced (collapsed accordion) ---
     nx: int = Field(128, ge=16, le=512)
@@ -120,6 +145,56 @@ class SimConfig(BaseModel):
         gm = CONSTANTS["gravity_modes"][self.gravity_mode]
         return float(gm["g_m_per_s2"]), float(gm["g_jitter_m_per_s2"])
 
+    def radial_gravity(self) -> float:
+        """Effective radial g_r (m/s^2), outward-positive convention.
+
+        The document leaves the sign/definition to the user; we map gravity
+        inward (negative outward) so momentum residual R2 is physically
+        interpretable. An explicit radial_gravity_m_per_s2 overrides this.
+        """
+        if self.radial_gravity_m_per_s2 is not None:
+            return float(self.radial_gravity_m_per_s2)
+        return -float(self.gravity()[0])
+
+    def run_end_time_s(self) -> float:
+        """Run length in seconds (iteration_count x dt_s)."""
+        return float(self.iteration_count) * float(self.dt_s)
+
+    def resolved_mechanism(self):
+        """Resolve the species/reaction mechanism for this config."""
+        from mechanism import mechanism_for_config
+
+        return mechanism_for_config(self)
+
+    @field_validator(
+        "initial_species_mass_fractions",
+        "fuel_inlet_composition",
+        "oxidizer_inlet_composition",
+    )
+    @classmethod
+    def _mass_fraction_maps(cls, v: Optional[dict[str, float]]):
+        if v is None:
+            return v
+        clean = {str(k): float(val) for k, val in v.items()}
+        if any(val < 0.0 for val in clean.values()):
+            raise ValueError("mass fractions must be non-negative")
+        if sum(clean.values()) > 1.0001:
+            raise ValueError("mass fractions must sum to <= 1 (N2 fills the balance)")
+        return clean
+
+    @model_validator(mode="after")
+    def _check_spherical_domain(self):
+        if self.r_max_m <= self.r_min_m:
+            raise ValueError("r_max_m must be greater than r_min_m")
+        if self.mass_flow_kg_s > 0.0 and self.r_min_m <= 0.0:
+            raise ValueError("mass_flow_kg_s > 0 requires r_min_m > 0 (1/r^2 singularity)")
+        if self.t_end_s is not None:
+            # t_end is authoritative when supplied; keep iteration_count in sync
+            # so the rest of the backend/UI contract (iteration_count x dt_s)
+            # remains exact.
+            self.iteration_count = max(1, int(round(float(self.t_end_s) / float(self.dt_s))))
+        return self
+
     def cache_key(self) -> str:
         """Stable short hash for parameter-sweep dedup + result caching."""
         import hashlib
@@ -138,6 +213,9 @@ class UnifiedPayload(BaseModel):
     gravity_mode: GravityMode
     inlet_velocity_ms: float = 0.0
     ignition_energy: Optional[float] = None
+    experiment_id: Optional[str] = Field(
+        None, description="PSI experiment id, when available (used by tier-1 profile matching)"
+    )
 
     # Telemetry summary
     max_radius_mm: Optional[float] = None
@@ -181,11 +259,15 @@ class SimResult(BaseModel):
     """Normalization layer over whatever the solver seam returns."""
 
     config: SimConfig
-    frames: list[list[list[float]]] = Field(description="T field [ny][nx], Kelvin")
+    frames: list[list[list[float]]] = Field(description="Painted T field [ny][nx], Kelvin")
     times: list[float]
     history: list[dict[str, Any]]
     final: dict[str, Any]
-    solver: str = Field(description="'triage_core' (C++) or 'mock' fallback")
+    radial_frames: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Coarse 1D radial snapshots (r, T, species, qdot) per saved step",
+    )
+    solver: str = Field(description="'triage_core' (C++) or 'reference' (NumPy 1D)")
 
     def to_unified(self) -> UnifiedPayload:
         gm, _ = self.config.gravity()
@@ -197,6 +279,7 @@ class SimResult(BaseModel):
             gravity_mode=self.config.gravity_mode,
             inlet_velocity_ms=self.config.inlet_velocity_ms,
             ignition_energy=self.config.ignition_energy_j,
+            experiment_id=self.config.experiment_id,
             max_radius_mm=(self.final.get("max_flame_radius_m") or 0.0) * 1000.0,
             quench_time_s=self.final.get("quench_time_s"),
             peak_temp_k=self.final.get("peak_temp_k"),

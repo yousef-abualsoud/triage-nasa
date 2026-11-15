@@ -4,12 +4,12 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import FlameField2D from "./FlameField2D.jsx";
 
 /**
- * 3D volumetric flame view. The solver field stays strictly 2D ([ny][nx] K,
- * row 0 = physical bottom y = -H/2, buoyancy drifts toward +y); this view
- * revolves that half-plane about the flame axis (x = 0, through the ignition
- * center) and raymarches an emission-absorption fire shader through the
- * resulting axisymmetric volume. Disclosure: the axisymmetry is a
- * visualization assumption — the physics remains 2D.
+ * 3D volumetric flame view. The solver is 1D spherical radial; its T(r) field
+ * is painted onto a centered [ny][nx] display grid (row 0 = physical bottom
+ * y = -H/2). This view revolves that half-plane about the flame axis (x = 0)
+ * and raymarches an emission-absorption fire shader through the resulting
+ * axisymmetric volume. Because the painted field is centered and radial, the
+ * revolve is a true spherical field, not an additional physics assumption.
  *
  * WebGL fallback: if a WebGL2 context cannot be created, delegates to the
  * 2D heatmap (FlameField2D) with a notice chip.
@@ -304,7 +304,9 @@ export default function FlameField3D({
     }
     dst.needsUpdate = true;
     uniforms.uAmbient.value = ambientK;
-    uniforms.uPeak.value = Math.max(Math.min(maxT, 3200), ambientK + 50);
+    // Keep headroom above the peak so a hot burned sphere maps to orange/yellow
+    // rather than saturating the fire ramp to white.
+    uniforms.uPeak.value = Math.max(Math.min(maxT * 1.2, 4500), ambientK + 50);
   }, [frame, ambientK]);
 
   // WebGL unavailable -> delegate to the 2D heatmap with a notice.
@@ -334,7 +336,7 @@ export default function FlameField3D({
   const modeLabel = {
     zero_g: "Zero-G — diffusion sphere",
     iss_micro_g: "ISS Micro-G — jitter",
-    earth_1g: "Earth 1G — buoyant teardrop",
+    earth_1g: "Earth 1G — radial g approximation",
     mars_g: "Mars 0.38G — partial gravity",
     moon_g: "Moon 0.165G — partial gravity",
   }[gravityMode] ?? gravityMode;
@@ -345,9 +347,9 @@ export default function FlameField3D({
         <h2>Flame Field (3D)</h2>
         <span
           className="chip"
-          title="The 2D solver field is revolved about the flame axis (axisymmetric assumption) for display; the physics stays strictly 2D."
+          title="The 1D spherical radial T(r) field is painted on a centered display grid and revolved about the flame axis; the solver itself is 1D spherical."
         >
-          axisymmetric revolve
+          1D spherical revolve
         </span>
         <span className="chip">{modeLabel}</span>
         {time != null && (

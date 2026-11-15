@@ -19,6 +19,23 @@ const DEFAULT_CONFIG = {
   inlet_velocity_ms: 0.0,
   ignition_method: "energy_deposition",
   ignition_energy_j: 2.0,
+  // 1D spherical solver (document architecture)
+  geometry: "spherical_1d",
+  r_min_m: 0.001,
+  r_max_m: 0.04,
+  Nr: 256,
+  mass_flow_kg_s: 0.0,
+  mixing_mode: "premixed",
+  equivalence_ratio: 1.0,
+  oxidizer: "air",
+  reaction: null,
+  initial_species_mass_fractions: null,
+  fuel_inlet_composition: null,
+  oxidizer_inlet_composition: null,
+  inlet_temperature_k: 300.0,
+  inner_bc: "fixed",
+  outer_bc: "fixed",
+  // Display grid + run controls
   nx: 128,
   ny: 128,
   dt_s: 0.001,
@@ -106,6 +123,15 @@ export default function App() {
 
   const frame = frames[Math.min(frameIndex, frames.length - 1)] ?? null;
   const time = times[Math.min(frameIndex, times.length - 1)] ?? null;
+  // The 3D view revolves the centered 2D paint of the 1D radial field; its
+  // physical span is 2*r_max for the spherical solver.
+  const displayDomain = useMemo(() => {
+    if (config.geometry === "spherical_1d") {
+      const side = 2 * (Number(config.r_max_m) || 0.04);
+      return { L: side, H: side };
+    }
+    return { L: config.domain_length_m, H: config.domain_height_m };
+  }, [config.geometry, config.r_max_m, config.domain_length_m, config.domain_height_m]);
 
   return (
     <div className="app">
@@ -127,6 +153,9 @@ export default function App() {
               solver: {backend.simResult.solver}
             </span>
           )}
+          <span className="solver-chip">
+            1D spherical · Nᵣ {backend.simResult?.config?.Nr ?? config.Nr}
+          </span>
         </div>
       </header>
 
@@ -189,10 +218,7 @@ export default function App() {
                   onScrub={setFrameIndex}
                   gravityMode={config.gravity_mode}
                   finalData={finalData}
-                  domain={{
-                    L: config.domain_length_m,
-                    H: config.domain_height_m,
-                  }}
+                  domain={displayDomain}
                   ambientK={config.ambient_temperature_k}
                   headerExtra={
                     <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -265,6 +291,8 @@ export default function App() {
               ambientK={config.ambient_temperature_k}
               finalData={finalData}
               groundTruth={groundTruth}
+              radialFrames={backend.simResult?.radial_frames ?? []}
+              finalRadial={finalData?.radial ?? null}
             />
           </main>
         )}
@@ -273,8 +301,8 @@ export default function App() {
       <footer className="app-footer">
         <p>
           NASA Space Apps 2026 — “Flame in Free-Fall”. AI-assisted code &amp;
-          data per disclosure rules. Physics: 2D laminar gaseous combustion,
-          single-step Arrhenius (reduced approximation).
+          data per disclosure rules. Physics: 1D spherical low-Mach multi-species
+          transport with a reduced global Arrhenius reaction.
         </p>
       </footer>
     </div>
@@ -305,13 +333,15 @@ function MarkdownView({ markdown }) {
   const out = [];
   let para = [];
   const inline = (text, keyPrefix) =>
-    text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-      part.startsWith("**") && part.endsWith("**") ? (
-        <strong key={`${keyPrefix}b${i}`}>{part.slice(2, -2)}</strong>
-      ) : (
-        <React.Fragment key={`${keyPrefix}t${i}`}>{part}</React.Fragment>
-      )
-    );
+    text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={`${keyPrefix}b${i}`}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+        return <em key={`${keyPrefix}i${i}`}>{part.slice(1, -1)}</em>;
+      }
+      return <React.Fragment key={`${keyPrefix}t${i}`}>{part}</React.Fragment>;
+    });
   const flushPara = (key) => {
     if (para.length) {
       out.push(<p key={key}>{inline(para.join(" "), key)}</p>);
