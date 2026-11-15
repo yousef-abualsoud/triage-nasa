@@ -2,20 +2,20 @@
 
 **2026 NASA Space Apps Challenge — "Flame in Free-Fall"**
 
-An interactive, AI-powered Digital Twin dashboard that summarizes, ranks, and
-interprets historical NASA microgravity combustion experiments (ACME s-Flame,
-ACME Coflow, Saffire, FLEX) alongside a custom **1D spherical finite-volume
-combustion solver** — delivering fire-safety insights for Moon and Mars
-missions. Ground truth comes from the live NASA PSI repository API: the full
-Combustion Science catalogue (24 investigations) plus per-test-point ACME
-s-Flame telemetry reduced into `data/psi/`.
+An interactive, AI-powered Digital Twin dashboard built around a custom **1D
+spherical finite-volume combustion solver**. It compares each run with NASA's
+ACME s-Flame microgravity experiments and surfaces the broader 24-investigation
+PSI combustion catalogue (ACME, Saffire, FLEX, …), then turns that comparison
+into fire-safety guidance for Moon and Mars missions. Ground truth is sourced
+from the live NASA PSI repository API and shipped as a reduced, auditable
+dataset in `data/psi/`.
 
-The solver implements the five coupled equations in the architecture
-specification: continuity, equation of state, momentum consistency, species
-transport (with the correction velocity), and sensible-enthalpy energy
-transport, plus the Arrhenius reaction-rate and chemical-heat-release
-calculators. A NumPy reference implementation and a pybind11 C++ module
-(`triage_core`) share the same seam; the dashboard shows which one is active.
+The solver implements five coupled equations — continuity, equation of state,
+momentum consistency, species transport (with the correction velocity), and
+sensible-enthalpy energy transport — plus the Arrhenius reaction-rate and
+chemical-heat-release calculators. A NumPy reference implementation and a
+pybind11 C++ module (`triage_core`) share the same seam; the dashboard shows
+which one is active.
 Open issues in the source document are implemented literally and tracked in
 the internal revision tracker (kept outside the distributed repository); the
 as-built notes are in the internal solver notes.
@@ -23,41 +23,54 @@ as-built notes are in the internal solver notes.
 > **AI disclosure (per NASA Space Apps rules):** This project was built with
 > AI-assisted code generation and data curation (architecture, C++/Python/
 > JavaScript scaffolding, documentation). All AI-generated content is
-> acknowledged in this README and in the repository metadata. No AI-generated
+> acknowledged in this README. No AI-generated
 > imagery or audio is used in the core deliverable; any demo-video voice-over
 > (if produced) uses Azure Speech Neural TTS and is disclosed as such.
 
 ---
 
-## Quick Start (judges — 3 steps)
+## Quick Start
+
+### Option 1 — Docker (one command)
 
 ```bash
-# 1. Backend (Python 3.12+): WebSocket server + simulation + AI pipeline
+docker compose up --build
+```
+
+Dashboard: `http://localhost:8080` · backend WebSocket: `ws://localhost:8765`.
+The SPA is built inside `Dockerfile.frontend` and served by nginx; the backend
+image builds the C++ `triage_core` module. `./data` is mounted into the backend
+so curated PSI ground truth and custom presets persist. No local
+`npm run build` is required.
+
+### Option 2 — Local development
+
+```bash
+# 1. Python environment and dependencies (Python 3.12+)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+# 2. Optional C++ solver (otherwise the NumPy reference is used)
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -Dpybind11_DIR="$(.venv/bin/python -m pybind11 --cmakedir)"
+cmake --build build -j
+
+# 3. Backend — terminal 1
 .venv/bin/python src/python/server.py          # ws://0.0.0.0:8765
 
-# 2. Frontend (Node 20+)
-cd src/frontend && npm install && npm run dev  # http://localhost:5173
+# 4. Frontend — terminal 2 (Node 22+)
+cd src/frontend
+npm ci
+npm run dev                                    # http://localhost:5173
 
-# 3. (Optional) C++ solver module — falls back to the NumPy reference
-cmake -B build -DCMAKE_BUILD_TYPE=Release \
-  -Dpybind11_DIR="$($PWD/.venv/bin/python -m pybind11 --cmakedir)"
-cmake --build build -j
-# sim_bridge.py auto-loads build/triage_core*.so when present.
-
-# 4. Tests (fidelity + grid/transport + C++/Python parity)
+# 5. Tests — from the repo root
 PYTHONPATH=src/python .venv/bin/python -m pytest -q tests/
 ```
 
-Or one command with Docker: `docker compose up --build`. This builds the
-React SPA inside `Dockerfile.frontend`, serves it from nginx on
-`http://localhost:8080`, and runs the Python/C++ backend on
-`ws://localhost:8765`. No local `npm run build` is required. The `./data`
-directory is mounted into the backend so curated PSI ground truth and custom
-presets persist.
+`sim_bridge.py` auto-loads `build/triage_core*.so` when present. The C++ build
+is optional; without it the NumPy reference implements the same solver seam.
 
-Refresh or inspect the PSI data (network, ~100 MB raw cache; reduced output is
-small and shipped):
+Refresh or inspect the PSI data (requires network; the reduced output is
+shipped, while raw CSVs stay in the gitignored cache):
 
 ```bash
 .venv/bin/python src/python/psi_repo.py status   # catalogue + s-Flame coverage
@@ -113,16 +126,17 @@ mesh in the same accent color as the sliders):
    **"why this test point"** line shows the normalized distance breakdown,
    runner-up, real-versus-surrogate pool, and an explicit no-match state. It
    also shows the measured NASA outcome (stable vs extinguished, PMT peak) and a
-   dense tier-1 verdict grid — all visible without scrolling. The center and right of the tab belong to the big **Tier 2
-   report** panel (**DeepSeek v4.1 Flash** on NanoGPT, with an optional
-   Azure AI Foundry fallback; gated to top-1% anomalies or an explicit user
-   click), which produces a Markdown fire-safety diagnostic grounded in the
-   2015 *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
+   dense tier-1 verdict grid in the left rail. The right side of the tab is the
+   big **Tier 2 report** panel (**DeepSeek v4.1 Flash** on NanoGPT, with an
+   optional Azure AI Foundry fallback; generated only on an explicit user click,
+   so no automatic frontier requests are made), which produces a Markdown
+   fire-safety diagnostic grounded in the 2015
+   *ISS Combustion Science Researcher's Guide* and the Apollo 1 /
    Apollo 13 / Mir 1997 incident history, with Moon/Mars ECLSS
    recommendations. The panel chip names the engine that actually answered;
    a failed or unconfigured call is labeled `local fallback` with the reason.
    While a report is generating, an indeterminate progress bar shows elapsed
-   seconds (triage + synthesis typically take 10–30 s).
+   seconds (triage + synthesis typically take 20–40 s).
 
 3. **Tab 3 · More Graphs.** A responsive diagnostics dashboard: burn curves vs
    NASA PSI flight telemetry, soot index & mean temperature, fuel burned
@@ -135,7 +149,19 @@ mesh in the same accent color as the sliders):
    pixel size, axis titles live in dedicated gutters, and every x axis starts
    at 0: time series begin at t = 0 / iteration 0 (the solvers emit the
    pre-run state as the first sample), and radial curves hold the innermost
-   solver value out to r = 0 with the actual `r_min` boundary marked.
+   solver value out to r = 0 with the actual `r_min` boundary marked. Hover any
+   chart for a cursor readout with exact sampled values, including both sides
+   of a dual axis or all series in a history plot.
+
+### Report export
+
+The **Export PDF** button at the far right of the tab strip unlocks once the
+current run has both a tier-1 verdict and a tier-2 report. It downloads an A4
+portrait report with the centered **T.R.I.A.G.E.** wordmark, run configuration
+and outcome tables, the tier-1 verdict and Jev/NASA PSI comparison, the
+tier-2 fire-safety synthesis and ECLSS recommendations, all Tab 3 charts,
+rule-based suggestions, and solver diagnostics. Charts are captured from the
+same D3 renderer at high resolution and keep the dashboard's dark palette.
 
 ## Architecture
 
@@ -146,8 +172,8 @@ src/
 ├── python/       # WebSocket server, NASA PSI repository client + s-Flame
 │                 #   ground-truth builder, two-tier AI pipeline, solver1d/
 │                 #   NumPy reference (grid/properties/chemistry/transport)
-├── frontend/    # React + D3 digital-twin dashboard (Vite)
-└── shared/      # species_db.json + reactions.json + constants.json
+├── frontend/     # React + D3 dashboard, chart tooltips, A4 PDF report (Vite)
+└── shared/       # species_db.json + reactions.json + constants.json
 ```
 
 `src/python/solver1d/` is the Python reference implementation of the same
@@ -168,8 +194,8 @@ resolved species/reaction payload from `mechanism.mechanism_payload()`.
 If `import triage_core` fails, `sim_bridge.py` runs the NumPy reference in
 `src/python/solver1d/` with the same equations and output shape, so the entire
 pipeline (ingest → triage → UI) is testable offline. C++/Python parity is
-covered by `tests/test_parity.py` (≤0.73 K temperature difference on the default
-256-cell run).
+covered by `tests/test_parity.py` across short and mass-flow runs, where final
+frame and radial temperature differences stay below 1 K.
 
 **Key physics modes**
 
@@ -231,9 +257,10 @@ substitution and forwards the keys defined in `docker-compose.yml`.
 - `TIER2_MAX_TOKENS` / `TIER2_TIMEOUT_S` — generation cap and request timeout
   (defaults `8000` / `180`; the thinking model spends part of the cap on
   reasoning tokens).
-- `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` / deployment — optional
-  Tier 2 fallback, used only if NanoGPT is unset or the DeepSeek call fails
-  (gated; trial TPM quota protected).
+- `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` /
+  `AZURE_OPENAI_DEPLOYMENT` (plus optional `AZURE_OPENAI_API_VERSION`) —
+  optional Tier 2 fallback, used only if NanoGPT is unset or the DeepSeek call
+  fails (gated; trial TPM quota protected).
 - All optional: every AI path has a deterministic local fallback so the demo
   never depends on network availability.
 
@@ -241,16 +268,18 @@ substitution and forwards the keys defined in `docker-compose.yml`.
 
 The 1D spherical solver now exists in both forms — the NumPy reference
 (`src/python/solver1d/`) and the pybind11 C++ module (`src/cpp/`, built into
-`build/triage_core*.so`). The WebSocket backend, S3 ingest, two-tier AI
-pipeline (Jev/DeepSeek when configured, explicit local fallbacks otherwise),
-React/D3 dashboard, parameter sweeps, custom fuels, Jev comparison,
-and Tier-2 report are functional end-to-end against it. `pytest` covers
+`build/triage_core*.so`). The WebSocket backend, PSI ground-truth loading,
+two-tier AI pipeline (Jev/DeepSeek when configured, explicit local fallbacks
+otherwise), React/D3 dashboard, parameter sweeps, custom fuels, Jev comparison,
+Tier-2 report, interactive chart readouts, and A4 PDF export are functional
+end-to-end against it. The test suite currently has 61 passing tests covering
 thermochemistry, grid/transport, solver behaviour, C++/Python parity, and the
 AI fallback/`.env` wiring.
 
 The PSI metadata join is complete: the 24-investigation catalogue and the
 per-test-point s-Flame ground truth are generated from the public repository
-API and shipped under `data/psi/`. Remaining release work (see `PLAN.md`):
-Docker end-to-end verification, demo video/pitch deck, custom
-species/reaction editors, and the revision items in the internal revision
-tracker (intentionally deferred, not silently fixed).
+API and shipped under `data/psi/`. The local venv/Vite path is verified
+end-to-end, Docker packaging is included for one-command deployment, and the
+core demo runs without external AI keys because both tiers fall back
+deterministically. Optional extensions and the internal revision items are
+tracked separately in `PLAN.md`.
