@@ -111,14 +111,13 @@ cmake --build build -j
 
 # 4. Backend — terminal 1
 .venv/bin/python src/python/server.py          # ws://0.0.0.0:8765
+```
 
+```bash
 # 5. Frontend — terminal 2 (Node 22+)
 cd src/frontend
 npm ci
 npm run dev                                    # http://localhost:5173
-
-# 6. Tests — new terminal, from the repository root
-PYTHONPATH=src/python .venv/bin/python -m pytest -q tests/
 ```
 
 `sim_bridge.py` auto-loads `build/triage_core*.so` when present. The C++ build
