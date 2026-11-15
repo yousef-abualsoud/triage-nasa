@@ -89,14 +89,14 @@
 - **Triage:** exact fuel + gravity-class gates (`zero_g` ≡ `iss_micro_g`);
   distance `|ΔO₂|/40 + |ΔP|/2 + |Δu|/2`, plus `0.15` if stable/extinguished
   differs; real PSI beats synthetic; no match returns `None`.
-- **AI engines:** Tier 1 targets `typesafe/jev-latest` via NanoGPT's native
-  `POST /decisions` API with typed choice/score/noul questions; the repo
+- **AI engines:** Tier 1 uses `typesafe/jev-1.14` (`JEV_MODEL`) via NanoGPT's
+  native `POST /decisions` API with typed choice/score/noul questions; the repo
   `.env` is auto-loaded (shell/container values win), sweeps use
   bounded-concurrent `triage_sweep`, and every verdict carries
-  `engine="jev"|"local"` (shown as a chip). A local key is present but the
-  account currently returns `403 paid_features_disabled`, so all observed
-  verdicts remain the explicit local fallback until paid/decision models are
-  enabled. Tier 2 likewise falls back without Azure credentials.
+  `engine="jev"|"local"` (shown as a chip). A local key now returns live Jev
+  verdicts end-to-end; without a key or decisions access the same path falls
+  back to local with the API reason. Tier 2 likewise falls back without Azure
+  credentials.
 - **Docker:** packaging fixed (`Dockerfile.frontend` builds the SPA; compose no
   longer mounts `dist/`; `.dockerignore` excludes docs/raw cache), but
   `docker compose up --build` is still unverified — Docker is not installed in

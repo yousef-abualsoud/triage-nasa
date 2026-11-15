@@ -103,7 +103,7 @@ export default function JevComparison({ verdictMsg, sim, onTriage, busy, connect
               title={
                 v.engine === "local"
                   ? "Deterministic local heuristic — no NanoGPT/Jev call"
-                  : "Verdict produced by typesafe/jev-latest on NanoGPT"
+                  : `Verdict produced by ${v.engine_model || "typesafe/jev-1.14"} on NanoGPT`
               }
             >
               {v.engine === "local" ? "local" : "Jev"}

@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from schema import CONSTANTS, JevVerdict, UnifiedPayload  # noqa: E402
 
 NANOGPT_BASE_URL = os.environ.get("NANOGPT_BASE_URL", "https://api.nano-gpt.com/api/v1")
-JEV_MODEL = "typesafe/jev-latest"
+JEV_MODEL = os.environ.get("JEV_MODEL", "typesafe/jev-1.14")
 MAX_CONCURRENCY = int(os.environ.get("JEV_CONCURRENCY", "12"))
 _TIMEOUT = httpx.Timeout(45.0)
 
@@ -246,6 +246,7 @@ def _verdict_from_answers(
         delta_score=delta,
         confidence_score=confidence,
         engine="jev",
+        engine_model=JEV_MODEL,
         notes=notes,
     )
 

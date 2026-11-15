@@ -206,12 +206,13 @@ The backend auto-loads the repo-root `.env` at startup; existing shell or
 container variables take precedence. Docker Compose also reads `.env` for
 substitution and forwards the keys defined in `docker-compose.yml`.
 
-- `NANOGPT_API_KEY` — Tier 1 triage (`typesafe/jev-latest`, native
+- `NANOGPT_API_KEY` — Tier 1 triage (`typesafe/jev-1.14`, native
   Decisions API). Jev is a decision model, so the backend asks typed
   `choice`/`score`/`noul` questions and maps the answers onto the verdict
   schema. Without a key — or when the account has paid/decision models
   disabled — the verdict is the deterministic local heuristic and the panel
   shows `local` plus the actual fallback reason.
+- `JEV_MODEL` — decision model ID (default `typesafe/jev-1.14`).
 - `JEV_CONCURRENCY` — max concurrent triage calls in a parameter sweep
   (default 12).
 - `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` / deployment — Tier 2

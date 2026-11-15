@@ -273,6 +273,7 @@ class JevVerdict(BaseModel):
     engine: Literal["jev", "local"] = Field(
         "local", description="Verdict producer: Jev model or deterministic local fallback"
     )
+    engine_model: str = Field("", description="Decision model ID when engine == 'jev'")
     notes: str = Field("", max_length=280)
 
     @property

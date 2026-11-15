@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 import env_loader
-from jev_client import _decision_request, triage_pair, triage_sweep
+from jev_client import JEV_MODEL, _decision_request, triage_pair, triage_sweep
 from schema import UnifiedPayload
 
 ANSWERS = {
@@ -98,7 +98,7 @@ def test_env_loader_reads_file_without_overwriting_shell(tmp_path, monkeypatch):
 
 def test_decision_request_is_typed_and_compact():
     request = _decision_request(None, _sim())
-    assert request["model"] == "typesafe/jev-latest"
+    assert request["model"] == JEV_MODEL
     assert request["state"]["nasa_ground_truth"] is None
     assert "profile_r" not in request["state"]["sim_prediction"]
     assert set(request["questions"]) == {
@@ -121,6 +121,7 @@ async def test_triage_without_key_labels_local_engine(monkeypatch):
     monkeypatch.delenv("NANOGPT_API_KEY", raising=False)
     verdict = await triage_pair(None, _sim())
     assert verdict.engine == "local"
+    assert verdict.engine_model == ""
     assert "no NanoGPT key configured" in verdict.notes
 
 
@@ -152,10 +153,11 @@ async def test_decisions_answers_map_onto_verdict(monkeypatch):
     verdict = await triage_pair(gt, _sim(extinction=False), client=client)
 
     assert client.path == "/decisions"
-    assert client.payload["model"] == "typesafe/jev-latest"
+    assert client.payload["model"] == JEV_MODEL
     assert client.payload["state"]["nasa_ground_truth"]["test_point"] == "19304A2"
 
     assert verdict.engine == "jev"
+    assert verdict.engine_model == JEV_MODEL
     assert verdict.flame_morphology == "spherical"
     assert verdict.buoyancy_driven_convection is True
     assert verdict.nasa_experiment_profile_match == "ACME"
@@ -164,7 +166,7 @@ async def test_decisions_answers_map_onto_verdict(monkeypatch):
     assert verdict.stability_score == pytest.approx(80.0)
     assert verdict.delta_score == pytest.approx(50.0)
     assert verdict.confidence_score == pytest.approx(0.76)
-    assert "Jev typesafe/jev-latest decision verdict" in verdict.notes
+    assert f"Jev {JEV_MODEL} decision verdict" in verdict.notes
     assert "NASA GT: ACME s-Flame 19304A2" in verdict.notes
     assert len(verdict.notes) <= 280
 
