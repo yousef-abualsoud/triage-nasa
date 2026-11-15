@@ -31,6 +31,23 @@ as-built notes are in the internal solver notes.
 
 ## Quick Start
 
+### Prerequisites
+
+Option 1 needs only Docker. Option 2 needs Python and Node.js; the C++ solver
+toolchain is optional. No GPU or external AI key is required for the core demo.
+
+| Tool | Needed for | Get it |
+|------|------------|--------|
+| Docker with Compose v2 | Option 1 (recommended) | [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [Docker Engine + Compose](https://docs.docker.com/engine/install/) |
+| Python 3.12+ | Option 2 backend and tests | [python.org downloads](https://www.python.org/downloads/) |
+| Node.js 22+ | Option 2 frontend | [nodejs.org downloads](https://nodejs.org/en/download) |
+| CMake 3.24+ | Optional C++ solver | [cmake.org downloads](https://cmake.org/download/) |
+| GCC or Clang with C++20 support | Optional C++ solver | [GCC install](https://gcc.gnu.org/install/) · [Clang install](https://clang.llvm.org/get_started.html) |
+| Git | Cloning the repository | [git-scm.com downloads](https://git-scm.com/downloads) |
+
+Check versions with `docker --version`, `docker compose version`,
+`python3 --version`, `node --version`, and `cmake --version`.
+
 ### Option 1 — Docker (one command)
 
 ```bash
