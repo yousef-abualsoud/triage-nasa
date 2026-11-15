@@ -36,7 +36,7 @@ const CHART_KEYS = [
   "temperature-field",
   "history-soot",
   "history-burned",
-  "history-buoyancy",
+  "iteration-delta-t",
 ];
 
 export function expectedReportChartKeys({
@@ -46,7 +46,11 @@ export function expectedReportChartKeys({
   radialFrames,
 } = {}) {
   return CHART_KEYS.filter((key) => {
-    if (key.startsWith("history-") || key === "burn-curves") {
+    if (
+      key.startsWith("history-") ||
+      key === "burn-curves" ||
+      key === "iteration-delta-t"
+    ) {
       return Boolean(history?.length);
     }
     if (key === "solver-radial") return Boolean(finalRadial?.r_m?.length);

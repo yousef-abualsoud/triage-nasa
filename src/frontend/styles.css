@@ -1274,6 +1274,13 @@ body {
   pointer-events: none;
 }
 
+.chart-svg .chart-zero {
+  stroke: #44506d;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
 .chart-svg {
   display: block;
   width: 100%;

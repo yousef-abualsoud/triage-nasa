@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import BurnCurveOverlay from "./BurnCurveOverlay.jsx";
 import ChartTooltip from "./ChartTooltip.jsx";
+import IterationGraph from "./IterationGraph.jsx";
 import { buildSuggestions } from "../diagnostics.js";
 import {
   CHART_M,
@@ -48,15 +49,6 @@ const BURNED_SERIES = [
     scale: [0, 1],
     axisTitle: "fuel burned",
     format: PERCENT,
-  },
-];
-
-const BUOYANCY_SERIES = [
-  {
-    key: "buoyancy_ke",
-    label: "buoyancy KE (m²/s²)",
-    color: "#4dd0e1",
-    axisTitle: "KE (m²/s²)",
   },
 ];
 
@@ -150,13 +142,7 @@ export default function MoreGraphs({
           aria="Fuel burned fraction over iterations"
           chartKey="history-burned"
         />
-        <HistoryGraph
-          history={history}
-          series={BUOYANCY_SERIES}
-          title="Buoyancy Kinetic Energy"
-          aria="Buoyancy kinetic energy over iterations"
-          chartKey="history-buoyancy"
-        />
+        <IterationGraph history={history} />
       </div>
     </div>
   );

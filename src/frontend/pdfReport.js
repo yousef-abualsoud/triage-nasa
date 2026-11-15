@@ -59,9 +59,9 @@ const CHART_CAPTIONS = [
     "Fraction of the initial fuel mass consumed across solver iterations.",
   ],
   [
-    "history-buoyancy",
-    "Buoyancy kinetic energy",
-    "Buoyancy-driven kinetic energy across solver iterations.",
+    "iteration-delta-t",
+    "Iteration graph",
+    "Peak-temperature change between saved iterations: ΔT = T2 - T1, with T1 = 0 K on the first point.",
   ],
 ];
 

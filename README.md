@@ -98,8 +98,8 @@ mesh in the same accent color as the sliders):
    is the display grid. The solver step Δt runs from 0.001 s up to 1 s; run
    length = iterations x Δt. Every slider also accepts a directly typed value:
    click the number and type. Press **Run simulation** and watch the
-   **Iteration Graph** and **Active Calculations** trace fill with per-step
-   scalars as the solver computes.
+   **Iteration Graph** (ΔT between successive saved iterations) and **Active
+   Calculations** trace fill with per-step scalars as the solver computes.
 
 2. **Tab 2 · Fire Visuals & Analysis.** The 1D spherical `T(r)` field is
    painted onto a centered display grid and renders in a compact left rail as a
@@ -126,7 +126,7 @@ mesh in the same accent color as the sliders):
 
 3. **Tab 3 · More Graphs.** A responsive diagnostics dashboard: burn curves vs
    NASA PSI flight telemetry, soot index & mean temperature, fuel burned
-   fraction, buoyancy kinetic energy, the angle-averaged radial temperature
+   fraction, the iteration ΔT graph, the angle-averaged radial temperature
    profile of the current frame, the solver's **radial T/q̇** and **species**
    profiles, and a **T(r,t)** heatmap from the saved radial snapshots, plus
    rule-based **suggestions** read off the run's own numbers (including honest
