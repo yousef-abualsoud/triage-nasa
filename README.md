@@ -33,25 +33,29 @@ as-built notes are in the internal solver notes.
 
 ### Prerequisites
 
-Option 1 needs only Docker. Option 2 needs Python and Node.js; the C++ solver
-toolchain is optional. No GPU or external AI key is required for the core demo.
+Both options require Git to clone the repository. Option 1 otherwise needs
+only Docker; Option 2 also needs Python and Node.js. The C++ solver toolchain
+is optional. No GPU or external AI key is required for the core demo.
 
 | Tool | Needed for | Get it |
 |------|------------|--------|
+| Git | Both options (cloning the repository) | [git-scm.com downloads](https://git-scm.com/downloads) |
 | Docker with Compose v2 | Option 1 (recommended) | [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [Docker Engine + Compose](https://docs.docker.com/engine/install/) |
 | Python 3.12+ | Option 2 backend and tests | [python.org downloads](https://www.python.org/downloads/) |
 | Node.js 22+ | Option 2 frontend | [nodejs.org downloads](https://nodejs.org/en/download) |
 | CMake 3.24+ | Optional C++ solver | [cmake.org downloads](https://cmake.org/download/) |
 | GCC or Clang with C++20 support | Optional C++ solver | [GCC install](https://gcc.gnu.org/install/) · [Clang install](https://clang.llvm.org/get_started.html) |
-| Git | Cloning the repository | [git-scm.com downloads](https://git-scm.com/downloads) |
 
-Check versions with `docker --version`, `docker compose version`,
-`python3 --version`, `node --version`, and `cmake --version`.
+Check versions with `git --version`, `docker --version`,
+`docker compose version`, `python3 --version`, `node --version`, and
+`cmake --version`.
 
 ### Option 1 — Docker (one command)
 
-Start Docker Desktop, or make sure the Docker daemon is running. Then, from a
-fresh clone:
+Start Docker Desktop and wait until it reports **Engine running**
+(`docker info` should succeed). If Docker returns an
+`npipe:////./pipe/docker_engine` error, the daemon has not started yet. Then,
+from a fresh clone:
 
 ```bash
 git clone https://github.com/yousef-abualsoud/triage-nasa.git
@@ -65,6 +69,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
+**Windows:** the block above uses bash syntax. In CMD, use
+`copy .env.example .env`; in PowerShell, use
+`Copy-Item .env.example .env`. The `#` lines are comments and must not be
+pasted into CMD.
+
 Open `http://localhost:8080`; the backend WebSocket is on
 `ws://localhost:8765`. Ports 8080 and 8765 must be free. The first build takes a
 few minutes while Docker pulls images, builds the C++ solver, and runs
@@ -77,6 +86,9 @@ so curated PSI ground truth and custom presets persist. No local
 `npm run build` is required.
 
 ### Option 2 — Local development
+
+The commands below assume a Unix shell. On Windows, use WSL 2 for the local
+path; the C++ build flags target GCC/Clang.
 
 ```bash
 # 1. Python environment and dependencies (Python 3.12+)
