@@ -7,8 +7,11 @@ services:
       - "8765:8765"
     environment:
       - NANOGPT_API_KEY=${NANOGPT_API_KEY:-}
+      - NANOGPT_BASE_URL=${NANOGPT_BASE_URL:-https://nano-gpt.com/api/v1}
+      - JEV_CONCURRENCY=${JEV_CONCURRENCY:-12}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-10-21}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4o}
     volumes:
       - ./data:/app/data

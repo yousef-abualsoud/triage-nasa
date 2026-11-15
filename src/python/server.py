@@ -5,7 +5,7 @@ Protocol (JSON envelopes):
   inbound:
     {kind: "config", config: {...SimConfig fields}}        -> re-run live sim
     {kind: "sweep", sweep: {param: [values...]}}           -> parameter sweep
-    {kind: "triage", run_id: str}                          -> tier 1 verdict + nearest PSI GT
+    {kind: "triage", run_id: str}                          -> tier 1 verdict + nearest PSI GT + match rationale
     {kind: "tier2", run_id: str}                           -> tier 2 report (Azure-gated)
     {kind: "fuel_list"}                                    -> merged presets + field ranges
     {kind: "fuel_save", key, data}                         -> create/update custom preset
@@ -13,7 +13,7 @@ Protocol (JSON envelopes):
     {kind: "ping"}
   outbound:
     {kind: "sim_result", ...}  {kind: "sweep_result", ...}
-    {kind: "triage", verdict, ground_truth}  {kind: "tier2_report", ...}
+    {kind: "triage", verdict, ground_truth, match}  {kind: "tier2_report", ...}
     {kind: "fuel_list" | "fuel_saved" | "fuel_deleted", fuels, fields}
     {kind: "error", message}   {kind: "pong"}
 
@@ -26,6 +26,7 @@ import asyncio
 import json
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,10 +34,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import websockets  # noqa: E402
 
+from env_loader import load_env  # noqa: E402
+
+# Load the optional repo-root .env before importing modules that snapshot
+# NANOGPT_*/AZURE_* environment variables at import time.
+load_env()
+
 from azure_frontier_client import azure_configured, synthesize  # noqa: E402
 from fuel_db import FUEL_FIELDS, list_presets  # noqa: E402
 import fuel_db  # noqa: E402
-from jev_client import triage_pair  # noqa: E402
+from jev_client import triage_pair, triage_sweep  # noqa: E402
 from s3_ingest import load_ground_truth  # noqa: E402
 from schema import (  # noqa: E402
     SimConfig,
@@ -117,73 +124,188 @@ async def _handle_sweep(
         param, values = "oxygen_pct", [16.0, 21.0, 26.0]
     if param not in SWEEP_PARAMS:
         raise ValueError(f"sweep param {param!r} not allowed; pick from {sorted(SWEEP_PARAMS)}")
+
+    # Run every point first, then triage the batch together. With a NanoGPT key
+    # this is bounded-concurrent; without one every pair returns the local
+    # heuristic immediately.
+    runs: list[tuple[SimConfig, SimResult, UnifiedPayload, GroundTruthMatch]] = []
     for v in values:
         cfg = base_cfg.model_copy(update={param: v})
         res = await asyncio.to_thread(run_sim, cfg)
         sim_payload = res.to_unified()
-        gt = await _nearest_ground_truth(sim_payload)
-        verdict = await triage_pair(gt, sim_payload)
+        match = await _nearest_ground_truth(sim_payload)
+        runs.append((cfg, res, sim_payload, match))
+
+    verdicts = await triage_sweep(
+        [(match.payload, sim_payload) for _, _, sim_payload, match in runs]
+    )
+
+    results: list[dict[str, Any]] = []
+    for (cfg, res, sim_payload, match), verdict in zip(runs, verdicts):
         rid = cfg.cache_key()
         _RUN_CACHE[rid] = (res, sim_payload, verdict)
         results.append(
             {
                 "param": param,
-                "value": v,
+                "value": cfg.model_dump()[param],
                 "run_id": rid,
                 "final": res.final,
                 "unified": sim_payload.model_dump(),
                 "verdict": verdict.model_dump(),
+                "match": match.info,
             }
         )
     return {"kind": "sweep_result", "results": results}
 
 
-async def _nearest_ground_truth(sim: UnifiedPayload) -> UnifiedPayload | None:
-    """Nearest PSI run for the same fuel/gravity class.
+MICROGRAVITY_MODES = frozenset({"zero_g", "iss_micro_g"})
+# Matching scales: oxygen in percentage points, pressure in bar, velocity in
+# m/s. The normalized sum is a *ranking* distance, not a physical error.
+OXYGEN_SCALE = 40.0
+PRESSURE_SCALE = 2.0
+VELOCITY_SCALE = 2.0
+EXTINCTION_PENALTY = 0.15
 
-    Real flight data (``source="psi"``) always wins over a surrogate. Returns
-    ``None`` when no candidate exists, so the UI never shows a fabricated
-    100%-agreement comparison against a copy of the simulation itself.
+
+@dataclass(frozen=True)
+class GroundTruthMatch:
+    """Nearest archived run plus an auditable explanation of the choice.
+
+    ``payload`` is ``None`` when no archived run shares the simulation's fuel
+    and gravity class; ``info`` always carries the machine-readable reason so
+    the UI can show "no match" instead of an invented comparison.
     """
-    gts = load_ground_truth()
-    microgravity = {"zero_g", "iss_micro_g"}
-    best_real: tuple[float, UnifiedPayload] | None = None
-    best_synth: tuple[float, UnifiedPayload] | None = None
-    for entry in gts:
-        p = dict(entry["payload"])
-        if p.get("fuel") != sim.fuel:
-            continue
-        gt_gravity = p.get("gravity_mode")
-        # s-Flame is an ISS microgravity experiment. Treat zero_g and
-        # iss_micro_g as the same class so the default zero-G config can use
-        # the real flight data instead of falling back to a surrogate.
-        if gt_gravity != sim.gravity_mode and not (
-            {gt_gravity, sim.gravity_mode} <= microgravity
-        ):
-            continue
-        # The curated envelope carries the accession/test-point id.
-        if entry.get("experiment_id") and not p.get("experiment_id"):
-            p["experiment_id"] = entry["experiment_id"]
-        dist = (
-            abs(float(p.get("oxygen_pct", 21.0)) - sim.oxygen_pct) / 40.0
-            + abs(float(p.get("ambient_pressure_bar", 1.0)) - sim.ambient_pressure_bar) / 2.0
-            + abs(float(p.get("inlet_velocity_ms", 0.0)) - sim.inlet_velocity_ms) / 2.0
+
+    payload: UnifiedPayload | None
+    info: dict[str, Any]
+
+
+def _score_candidate(entry: dict[str, Any], sim: UnifiedPayload) -> dict[str, Any] | None:
+    """Score one archived run, or ``None`` when it fails the fuel/gravity gate."""
+    p = dict(entry["payload"])
+    if p.get("fuel") != sim.fuel:
+        return None
+    gt_gravity = p.get("gravity_mode")
+    # s-Flame is an ISS microgravity experiment. Treat zero_g and iss_micro_g
+    # as the same class so the default zero-G config can use real flight data.
+    if gt_gravity != sim.gravity_mode and not (
+        {gt_gravity, sim.gravity_mode} <= MICROGRAVITY_MODES
+    ):
+        return None
+    # The curated envelope carries the accession/test-point id.
+    if entry.get("experiment_id") and not p.get("experiment_id"):
+        p["experiment_id"] = entry["experiment_id"]
+
+    d_oxygen = abs(float(p.get("oxygen_pct", 21.0)) - sim.oxygen_pct)
+    d_pressure = abs(float(p.get("ambient_pressure_bar", 1.0)) - sim.ambient_pressure_bar)
+    d_velocity = abs(float(p.get("inlet_velocity_ms", 0.0)) - sim.inlet_velocity_ms)
+    # Prefer a ground-truth run with the same outcome (stable vs quenched) when
+    # conditions are otherwise close — a stable simulation should not be scored
+    # against an extinguished test point just because it is nearer in O2/P.
+    extinction_compared = p.get("extinction") is not None and sim.extinction is not None
+    extinction_mismatch = bool(extinction_compared) and (
+        bool(p["extinction"]) != bool(sim.extinction)
+    )
+    penalty = EXTINCTION_PENALTY if extinction_mismatch else 0.0
+
+    components = {
+        "oxygen": d_oxygen / OXYGEN_SCALE,
+        "pressure": d_pressure / PRESSURE_SCALE,
+        "velocity": d_velocity / VELOCITY_SCALE,
+        "extinction_penalty": penalty,
+    }
+    return {
+        "payload": UnifiedPayload.model_validate(p),
+        "distance": sum(components.values()),
+        "components": components,
+        "deltas": {
+            "oxygen_pct": d_oxygen,
+            "pressure_bar": d_pressure,
+            "velocity_ms": d_velocity,
+        },
+        "extinction_compared": extinction_compared,
+        "extinction_mismatch": extinction_mismatch,
+    }
+
+
+def _rank_key(candidate: dict[str, Any]) -> tuple[float, str, str]:
+    """Deterministic tie-break: distance, then test point, then source."""
+    p = candidate["payload"]
+    return (
+        candidate["distance"],
+        p.test_point or p.experiment_id or "",
+        p.source,
+    )
+
+
+def _identity(p: UnifiedPayload, distance: float | None = None) -> dict[str, Any]:
+    ident: dict[str, Any] = {
+        "source": p.source,
+        "experiment_id": p.experiment_id,
+        "investigation": p.investigation,
+        "accession": p.accession,
+        "test_point": p.test_point,
+        "fuel_blend": p.fuel_blend,
+        "gravity_mode": p.gravity_mode,
+    }
+    if distance is not None:
+        ident["distance"] = round(distance, 4)
+    return ident
+
+
+async def _nearest_ground_truth(sim: UnifiedPayload) -> GroundTruthMatch:
+    """Nearest PSI run for the same fuel/gravity class, with its rationale.
+
+    Real flight data (``source="psi"``) always wins over a surrogate. Returns a
+    payload of ``None`` when no candidate exists, so the UI never shows a
+    fabricated 100%-agreement comparison against a copy of the simulation
+    itself.
+    """
+    scored = [
+        candidate
+        for entry in load_ground_truth()
+        if (candidate := _score_candidate(entry, sim)) is not None
+    ]
+    if not scored:
+        return GroundTruthMatch(
+            None,
+            {
+                "matched": False,
+                "reason": (
+                    f"no archived PSI or surrogate run with fuel {sim.fuel} in "
+                    f"gravity class {sim.gravity_mode}"
+                ),
+                "candidates": 0,
+            },
         )
-        # Prefer a ground-truth run with the same outcome (stable vs quenched)
-        # when conditions are otherwise close — a stable simulation should not
-        # be scored against an extinguished test point just because it is nearer
-        # in oxygen/pressure.
-        if p.get("extinction") is not None and sim.extinction is not None:
-            if bool(p["extinction"]) != bool(sim.extinction):
-                dist += 0.15
-        candidate = (dist, UnifiedPayload.model_validate(p))
-        if p.get("source") == "psi":
-            if best_real is None or dist < best_real[0]:
-                best_real = candidate
-        elif best_synth is None or dist < best_synth[0]:
-            best_synth = candidate
-    best = best_real or best_synth
-    return best[1] if best else None
+
+    real = sorted(
+        (c for c in scored if c["payload"].source == "psi"), key=_rank_key
+    )
+    synthetic = sorted(
+        (c for c in scored if c["payload"].source != "psi"), key=_rank_key
+    )
+    # Real flight data beats any surrogate, even a numerically closer one.
+    pool = real or synthetic
+    chosen = pool[0]
+    runner_up = pool[1] if len(pool) > 1 else None
+    info: dict[str, Any] = {
+        "matched": True,
+        "pool": "real" if real else "synthetic",
+        "distance": round(chosen["distance"], 4),
+        "components": {k: round(v, 4) for k, v in chosen["components"].items()},
+        "deltas": {k: round(v, 4) for k, v in chosen["deltas"].items()},
+        "extinction_compared": chosen["extinction_compared"],
+        "extinction_mismatch": chosen["extinction_mismatch"],
+        "selected": _identity(chosen["payload"]),
+        "runner_up": (
+            _identity(runner_up["payload"], runner_up["distance"]) if runner_up else None
+        ),
+        "candidates": len(scored),
+        "real_candidates": len(real),
+        "synthetic_candidates": len(synthetic),
+    }
+    return GroundTruthMatch(chosen["payload"], info)
 
 
 async def _handle_fuel_list() -> dict[str, Any]:
@@ -214,7 +336,8 @@ async def _handle_triage(run_id: str) -> dict[str, Any]:
     if run_id not in _RUN_CACHE:
         raise ValueError(f"unknown run_id {run_id!r}")
     res, sim_payload, verdict = _RUN_CACHE[run_id]
-    gt = await _nearest_ground_truth(sim_payload)
+    match = await _nearest_ground_truth(sim_payload)
+    gt = match.payload
     if verdict is None:
         verdict = await triage_pair(gt, sim_payload)
         _RUN_CACHE[run_id] = (res, sim_payload, verdict)
@@ -226,6 +349,9 @@ async def _handle_triage(run_id: str) -> dict[str, Any]:
         # render field-level agreement percentages without a second round trip.
         # None means no matching fuel/gravity class exists in the archive.
         "ground_truth": gt.model_dump() if gt else None,
+        # Auditable selection rationale: pool (real vs surrogate), distance
+        # breakdown, runner-up, and the no-match reason.
+        "match": match.info,
     }
 
 
@@ -233,7 +359,8 @@ async def _handle_tier2(run_id: str) -> dict[str, Any]:
     if run_id not in _RUN_CACHE:
         raise ValueError(f"unknown run_id {run_id!r}")
     res, sim_payload, verdict = _RUN_CACHE[run_id]
-    gt = await _nearest_ground_truth(sim_payload)
+    match = await _nearest_ground_truth(sim_payload)
+    gt = match.payload
     if verdict is None:
         verdict = await triage_pair(gt, sim_payload)
         _RUN_CACHE[run_id] = (res, sim_payload, verdict)

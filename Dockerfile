@@ -21,7 +21,7 @@ RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 # ---------- Stage 2: Python backend deps ----------
 FROM base AS backend
 RUN pip install --no-cache-dir \
-    numpy pydantic websockets httpx openai
+    numpy pydantic python-dotenv websockets httpx openai
 
 COPY --from=cpp-builder /usr/local/lib/triage_core*.so /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib

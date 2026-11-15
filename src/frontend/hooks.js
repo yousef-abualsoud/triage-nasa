@@ -31,7 +31,11 @@ export function useTriageBackend() {
   // Inbound message router: request/response pairs keyed by runId/correlation.
   const routeRef = useRef({
     sim_result: (m) => {
+      // A new run invalidates the previous run's verdict and Tier-2 report;
+      // keeping them would show a stale PSI match against new conditions.
       setSimResult(m);
+      setVerdict(null);
+      setTier2Report(null);
       setBusy(false);
     },
     sweep_result: (m) => {

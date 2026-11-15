@@ -270,6 +270,9 @@ class JevVerdict(BaseModel):
     stability_score: float = Field(ge=0.0, le=100.0)
     delta_score: float = Field(ge=0.0, le=100.0, description="sim-vs-PSI disagreement")
     confidence_score: float = Field(ge=0.0, le=1.0)
+    engine: Literal["jev", "local"] = Field(
+        "local", description="Verdict producer: Jev model or deterministic local fallback"
+    )
     notes: str = Field("", max_length=280)
 
     @property

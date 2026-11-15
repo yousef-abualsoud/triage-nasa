@@ -109,8 +109,10 @@ mesh in the same accent color as the sliders):
    Experiment Comparison** panel scores the run against the nearest real PSI
    flight test point (e.g. *ACME s-Flame · 19304A2 · 45% CH4 with N2*) with
    field-level agreement for oxygen, pressure, burn duration, and — when the
-   source actually measured them — peak temperature and flame radius. It also
-   shows the measured NASA outcome (stable vs extinguished, PMT peak) and a
+   source actually measured them — peak temperature and flame radius. A
+   **"why this test point"** line shows the normalized distance breakdown,
+   runner-up, real-versus-surrogate pool, and an explicit no-match state. It
+   also shows the measured NASA outcome (stable vs extinguished, PMT peak) and a
    dense tier-1 verdict grid — all visible without scrolling. The center and right of the tab belong to the big **Tier 2
    report** panel (Azure AI Foundry, gated to top-1% anomalies or an explicit
    user click), which produces a Markdown fire-safety diagnostic grounded in
@@ -200,7 +202,16 @@ comparison payload but is not used by the spherical solver (R4).
 
 ## Environment variables (`.env`, see `.env.example`)
 
-- `NANOGPT_API_KEY` — Tier 1 bulk triage (typesafe/jev-latest)
+The backend auto-loads the repo-root `.env` at startup; existing shell or
+container variables take precedence. Docker Compose also reads `.env` for
+substitution and forwards the keys defined in `docker-compose.yml`.
+
+- `NANOGPT_API_KEY` — Tier 1 triage (`typesafe/jev-latest`). Without it, the
+  verdict is the deterministic local heuristic and the Jev panel shows a
+  `local` chip instead of `Jev`; a failed call is labelled as such rather than
+  misreported as a missing key.
+- `JEV_CONCURRENCY` — max concurrent triage calls in a parameter sweep
+  (default 12).
 - `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_API_KEY` / deployment — Tier 2
   synthesis (gated; trial TPM quota protected)
 - All optional: every AI path has a deterministic local fallback so the demo
@@ -211,9 +222,11 @@ comparison payload but is not used by the spherical solver (R4).
 The 1D spherical solver now exists in both forms — the NumPy reference
 (`src/python/solver1d/`) and the pybind11 C++ module (`src/cpp/`, built into
 `build/triage_core*.so`). The WebSocket backend, S3 ingest, two-tier AI
-pipeline, React/D3 dashboard, parameter sweeps, custom fuels, Jev comparison,
+pipeline (Jev/Azure when configured, explicit local fallback otherwise),
+React/D3 dashboard, parameter sweeps, custom fuels, Jev comparison,
 and Tier-2 report are functional end-to-end against it. `pytest` covers
-thermochemistry, grid/transport, solver behaviour, and C++/Python parity.
+thermochemistry, grid/transport, solver behaviour, C++/Python parity, and the
+AI fallback/`.env` wiring.
 
 The PSI metadata join is complete: the 24-investigation catalogue and the
 per-test-point s-Flame ground truth are generated from the public repository

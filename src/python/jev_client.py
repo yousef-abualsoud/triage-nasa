@@ -46,8 +46,12 @@ def _triage_prompt(gt: UnifiedPayload | None, sim: UnifiedPayload) -> str:
     )
 
 
-def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
-    """Deterministic offline triage used when no NanoGPT key is present.
+def _local_heuristic(
+    gt: UnifiedPayload | None,
+    sim: UnifiedPayload,
+    fallback_reason: str = "no NanoGPT key configured",
+) -> JevVerdict:
+    """Deterministic offline triage used when Jev is unavailable.
 
     The real solver is 1D spherical (R12): it cannot produce a transverse
     buoyant teardrop, so the offline heuristic never claims one. Gravity modes
@@ -126,8 +130,9 @@ def _local_heuristic(gt: UnifiedPayload, sim: UnifiedPayload) -> JevVerdict:
         stability_score=float(stability),
         delta_score=float(delta_score),
         confidence_score=0.55 if delta_score < 60 else 0.4,
+        engine="local",
         notes=(
-            "Local heuristic fallback (no NanoGPT key configured); 1D spherical "
+            f"Local heuristic fallback ({fallback_reason}); 1D spherical "
             f"solver, gravity is an effective radial term (R2/R12).{identity_note}"
         )[:280],
     )
@@ -170,27 +175,35 @@ async def triage_pair(
 
     try:
         data = await _call()
-        return JevVerdict.model_validate(data)
-    except Exception:
-        return _local_heuristic(gt, sim)
+        return JevVerdict.model_validate({**data, "engine": "jev"})
+    except Exception as exc:
+        # Keep the failure visible instead of reporting it as a missing key.
+        detail = " ".join(f"{type(exc).__name__}: {exc}".split())[:120]
+        return _local_heuristic(gt, sim, f"NanoGPT call failed — {detail}")
     finally:
         if own_client and client is not None:
             await client.aclose()
 
 
 async def triage_sweep(
-    pairs: list[tuple[UnifiedPayload, UnifiedPayload]],
+    pairs: list[tuple[UnifiedPayload | None, UnifiedPayload]],
 ) -> list[JevVerdict]:
     """Concurrent triage of many pairs with bounded parallelism."""
+    if not pairs:
+        return []
+    # The local heuristic is synchronous; skip the HTTP client entirely.
+    if not _api_key():
+        return [_local_heuristic(gt, sim) for gt, sim in pairs]
+
     sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
-    async def one(pair: tuple[UnifiedPayload, UnifiedPayload]) -> JevVerdict:
+    async def one(pair: tuple[UnifiedPayload | None, UnifiedPayload]) -> JevVerdict:
         async with sem:
             return await triage_pair(*pair)
 
     async with httpx.AsyncClient(
         base_url=NANOGPT_BASE_URL,
         timeout=_TIMEOUT,
-        headers={"Authorization": f"Bearer {_api_key() or 'unset'}"},
+        headers={"Authorization": f"Bearer {_api_key()}"},
     ) as client:
         return await asyncio.gather(*(one(p) for p in pairs))

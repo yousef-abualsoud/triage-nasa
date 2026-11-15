@@ -152,7 +152,8 @@ async def test_nearest_ground_truth_prefers_real_flight_data():
         gravity_mode="zero_g",
         peak_temp_k=1800.0,
     )
-    gt = await _nearest_ground_truth(sim)
+    match = await _nearest_ground_truth(sim)
+    gt = match.payload
     assert gt is not None
     assert gt.source == "psi"
     assert gt.accession == "PSI-23"
@@ -160,12 +161,77 @@ async def test_nearest_ground_truth_prefers_real_flight_data():
     # zero_g simulations are allowed to match ISS microgravity flight data.
     assert gt.gravity_mode == "iss_micro_g"
 
+    # The selection rationale is auditable, not just the winning payload.
+    info = match.info
+    assert info["matched"] is True
+    assert info["pool"] == "real"
+    assert info["selected"]["test_point"] == gt.test_point
+    assert info["real_candidates"] >= 1
+    assert info["candidates"] == info["real_candidates"] + info["synthetic_candidates"]
+    assert set(info["components"]) == {
+        "oxygen",
+        "pressure",
+        "velocity",
+        "extinction_penalty",
+    }
+    assert info["distance"] == pytest.approx(
+        sum(info["components"].values()), abs=1e-3
+    )
+    # CH4 has four curated flight runs, so a runner-up must be reported.
+    assert info["runner_up"] is not None
+    assert info["runner_up"]["test_point"] != gt.test_point
+    assert info["runner_up"]["distance"] >= info["distance"]
+
 
 @pytest.mark.asyncio
-async def test_triage_without_ground_truth_withholds_comparison():
+async def test_nearest_ground_truth_reports_no_match_without_fabricating():
+    from schema import UnifiedPayload
+    from server import _nearest_ground_truth
+
+    sim = UnifiedPayload(
+        source="sim",
+        fuel="C3H8",
+        oxygen_pct=21.0,
+        ambient_pressure_bar=1.0,
+        gravity_mode="mars_g",
+        peak_temp_k=1800.0,
+    )
+    match = await _nearest_ground_truth(sim)
+    assert match.payload is None
+    assert match.info["matched"] is False
+    assert match.info["candidates"] == 0
+    assert "C3H8" in match.info["reason"]
+    assert "mars_g" in match.info["reason"]
+
+
+@pytest.mark.asyncio
+async def test_nearest_ground_truth_marks_surrogate_pool():
+    from schema import UnifiedPayload
+    from server import _nearest_ground_truth
+
+    # C2H4 has curated ISS runs only; a 1G request can still use the archive's
+    # labelled surrogate, and the rationale must say so.
+    sim = UnifiedPayload(
+        source="sim",
+        fuel="C2H4",
+        oxygen_pct=21.0,
+        ambient_pressure_bar=1.0,
+        gravity_mode="earth_1g",
+    )
+    match = await _nearest_ground_truth(sim)
+    assert match.payload is not None
+    assert match.payload.source == "synthetic"
+    assert match.info["pool"] == "synthetic"
+    assert match.info["real_candidates"] == 0
+    assert match.info["synthetic_candidates"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_triage_without_ground_truth_withholds_comparison(monkeypatch):
     from jev_client import triage_pair
     from schema import UnifiedPayload
 
+    monkeypatch.delenv("NANOGPT_API_KEY", raising=False)
     sim = UnifiedPayload(
         source="sim",
         fuel="C3H8",
@@ -176,5 +242,6 @@ async def test_triage_without_ground_truth_withholds_comparison():
         stability=70.0,
     )
     verdict = await triage_pair(None, sim)
+    assert verdict.engine == "local"
     assert verdict.nasa_experiment_profile_match == "NONE"
     assert "No matching PSI" in verdict.notes
