@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "description": "Validated gaseous-fuel thermochemistry presets. Values auto-populate C++ solver constants when a fuel is selected; users never type these manually (Database rows in the inputs spec). Sources: NIST Chemistry WebBook, Burcat NASA polynomial compilations, Fristrom & Westenberg flame data. Units are SI.",
+  "description": "Validated gaseous-fuel thermochemistry presets. Values auto-populate C++ solver constants when a fuel is selected; users never type these manually (Database rows in the inputs spec). NASA-7 thermodynamic coefficients match GRI-Mech 3.0; fuel-level transport, kinetic, and flame-speed presets are reduced engineering values for the global single-step model. Units are SI.",
   "fuels": {
     "CH4": {
       "name": "Methane",

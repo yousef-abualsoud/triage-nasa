@@ -87,10 +87,15 @@ so curated PSI ground truth and custom presets persist. No local
 
 ### Option 2 — Local development
 
-The commands below assume a Unix shell. On Windows, use WSL 2 for the local
-path; the C++ build flags target GCC/Clang.
+Run all of these commands from the repository root, the folder containing
+`requirements.txt`, `CMakeLists.txt`, and `src/`. The commands assume a Unix
+shell. On Windows, use WSL 2 for the local path; the C++ build flags target
+GCC/Clang.
 
 ```bash
+# 0. Preflight: confirm the repository root
+pwd && ls requirements.txt CMakeLists.txt
+
 # 1. Python environment and dependencies (Python 3.12+)
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
@@ -107,7 +112,7 @@ cd src/frontend
 npm ci
 npm run dev                                    # http://localhost:5173
 
-# 5. Tests — from the repo root
+# 5. Tests — new terminal, from the repository root
 PYTHONPATH=src/python .venv/bin/python -m pytest -q tests/
 ```
 
@@ -266,12 +271,14 @@ comparison payload but is not used by the spherical solver (R4).
   data description, and ion current / PMT / radiometer peaks from the raw CSVs.
   Multi-TB video archives are intentionally not downloaded; flame radius and
   calibrated flame temperature are therefore left null rather than estimated.
-- **Species/reaction data**: NASA-7 thermochemistry and transport reference
-  values are curated from US public sources (NASA Glenn, Burcat, NIST). C3H8
-  currently uses a constant `cp`; transport uses power-law correlations rather
-  than full Chapman-Enskog (R8). The source document's open physical/mathematical
-  issues are implemented as written and tracked in the internal revision
-  tracker.
+- **Species/reaction data**: The NASA-7 thermodynamic coefficients in
+  `src/shared/species_db.json` match
+  [GRI-Mech 3.0](http://combustion.berkeley.edu/gri-mech/version30/text30.html).
+  Fuel-level transport, kinetic, and flame-speed presets are reduced
+  engineering values for the global single-step model. C3H8 currently uses a
+  constant `cp`; transport uses power-law correlations rather than full
+  Chapman-Enskog (R8). The source document's open physical/mathematical issues
+  are implemented as written and tracked in the internal revision tracker.
 - **Wolf Amendment**: zero calls to any Chinese API endpoints; all external
   inference routes through US-hosted infrastructure (NanoGPT, Azure US
   regions) or local fallbacks.
