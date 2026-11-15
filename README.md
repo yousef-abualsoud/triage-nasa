@@ -50,11 +50,27 @@ Check versions with `docker --version`, `docker compose version`,
 
 ### Option 1 — Docker (one command)
 
+Start Docker Desktop, or make sure the Docker daemon is running. Then, from a
+fresh clone:
+
 ```bash
+git clone https://github.com/yousef-abualsoud/triage-nasa.git
+cd triage-nasa
+
+# Optional: enable live Jev/DeepSeek calls. Skip this and the app still runs
+# with deterministic local fallbacks.
+cp .env.example .env
+# edit .env and set NANOGPT_API_KEY (and optional Azure keys)
+
 docker compose up --build
 ```
 
-Dashboard: `http://localhost:8080` · backend WebSocket: `ws://localhost:8765`.
+Open `http://localhost:8080`; the backend WebSocket is on
+`ws://localhost:8765`. Ports 8080 and 8765 must be free. The first build takes a
+few minutes while Docker pulls images, builds the C++ solver, and runs
+`npm ci`. Leave the command running; stop it with `Ctrl+C`, or run
+`docker compose down` from another terminal.
+
 The SPA is built inside `Dockerfile.frontend` and served by nginx; the backend
 image builds the C++ `triage_core` module. `./data` is mounted into the backend
 so curated PSI ground truth and custom presets persist. No local
